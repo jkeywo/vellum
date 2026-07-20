@@ -88,9 +88,18 @@ jobs:
         working-directory: ${{ matrix.game.dir }}
         # Belt and braces. The suites above already assert the fixtures, but a
         # test that quietly re-blessed one would still pass, and this would not.
+        #
+        # Scoped to the fixtures rather than the whole tree: applying a [patch]
+        # rewrites Cargo.lock by design, since the dependency now resolves to a
+        # path rather than the pinned git rev. That is this job working, not a
+        # fixture moving.
         run: |
-          if ! git diff --quiet; then
-            echo "The game's tree changed while testing against this engine:"
-            git diff --stat
+          moved=$(git diff --name-only -- '*golden*' '*fixture*' '*trace*')
+          if [ -n "$moved" ]; then
+            echo "A pinned fixture changed while testing against this engine:"
+            git diff --stat -- '*golden*' '*fixture*' '*trace*'
+            echo
+            echo "This engine change alters what the game produces. Existing"
+            echo "saves and share codes decode against the old behaviour."
             exit 1
           fi
