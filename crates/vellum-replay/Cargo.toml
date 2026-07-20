@@ -1,0 +1,19 @@
+[package]
+name = "vellum-replay"
+description = "The replay-as-save contract: a Simulation trait, a log driver, and checks that a game keeps it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[features]
+default = []
+# The contract checks. A game depends on this as a dev-dependency; nothing in
+# a shipped binary should pull it in.
+testkit = []
+
+[lints]
+workspace = true

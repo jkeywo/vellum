@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/vellum-digest",
+  "crates/vellum-replay",
   "crates/vellum-rng",
   "crates/vellum-strings",
 ]
