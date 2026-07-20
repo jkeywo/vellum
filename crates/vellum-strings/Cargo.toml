@@ -1,0 +1,13 @@
+[package]
+name = "vellum-strings"
+description = "CSV string tables and placeholder filling for authored game text."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
