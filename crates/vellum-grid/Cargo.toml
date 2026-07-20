@@ -1,0 +1,13 @@
+[package]
+name = "vellum-grid"
+description = "Deterministic shortest-path search over a grid, priced by the caller."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
