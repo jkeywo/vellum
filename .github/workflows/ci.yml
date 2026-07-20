@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Format, lint, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --all-features
+
+  consumers:
+    name: Consumer smoke (${{ matrix.game.repo }})
+    runs-on: ubuntu-latest
+    # This is the coordination mechanism between the three repositories. Each
+    # game pins a rev of this one; here we check the game out and build it
+    # against this branch's HEAD instead. An engine change that would move a
+    # game's golden fixtures therefore fails *here*, before the bump PR in that
+    # game exists.
+    #
+    # The determinism suites are the point. A game that merely compiles against
+    # a changed engine proves nothing: the failure being guarded against is a
+    # run that stops reproducing, which only the pinned fixtures see.
+    strategy:
+      fail-fast: false
+      matrix:
+        game:
+          - repo: jkeywo/project-murmur
+            dir: project-murmur
+            test: cargo test --workspace --exclude murmur-web
+          - repo: jkeywo/rogue-hunter
+            dir: rogue-hunter
+            test: cargo test --workspace
+    steps:
+      - name: Check out the engine
+        uses: actions/checkout@v4
+        with:
+          path: vellum
+      - name: Check out ${{ matrix.game.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.game.repo }}
+          path: ${{ matrix.game.dir }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.game.dir }}
+      - name: Point the game at this branch instead of its pinned rev
+        working-directory: ${{ matrix.game.dir }}
+        # The games depend on the engine by git URL, so a [patch] keyed on that
+        # URL redirects every one of them at once. Written here rather than
+        # committed to the game: a checked-in override would make its own CI
+        # build whatever happened to be on disk.
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [patch."https://github.com/jkeywo/vellum"]
+          vellum-digest = { path = "../vellum/crates/vellum-digest" }
+          vellum-grid = { path = "../vellum/crates/vellum-grid" }
+          vellum-replay = { path = "../vellum/crates/vellum-replay" }
+          vellum-rng = { path = "../vellum/crates/vellum-rng" }
+          vellum-strings = { path = "../vellum/crates/vellum-strings" }
+          EOF
+      - name: Determinism suite
+        working-directory: ${{ matrix.game.dir }}
+        run: ${{ matrix.game.test }}
+      - name: Fixtures must not have moved
+        working-directory: ${{ matrix.game.dir }}
+        # Belt and braces. The suites above already assert the fixtures, but a
+        # test that quietly re-blessed one would still pass, and this would not.
+        run: |
+          if ! git diff --quiet; then
+            echo "The game's tree changed while testing against this engine:"
+            git diff --stat
+            exit 1
+          fi
