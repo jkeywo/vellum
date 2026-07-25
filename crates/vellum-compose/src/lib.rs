@@ -119,6 +119,93 @@ fn normalize_units(value: Value, nested: bool) -> Value {
     }
 }
 
+/// Render a composed value as RON text in the authored style.
+///
+/// `ron`'s own serializer writes a [`Value::Map`] as a brace-map with quoted
+/// keys (`{ "hull": 1.0 }`), because the value layer cannot know a map used
+/// to be a struct. Authored game data is structs, written `(hull: 1.0)`, and
+/// an editor that saved files in a different dialect than authors write them
+/// would make every save a rewrite. This renderer keeps the authored style:
+/// maps as parenthesised bodies with bare identifier keys, sequences in
+/// brackets, and every leaf delegated to `ron`'s serializer so numbers and
+/// strings render exactly as it would.
+///
+/// Map keys must be identifier-like strings (authored field names); anything
+/// else is reported, because it did not come from a struct.
+pub fn write_ron(value: &Value) -> Result<String, ComposeError> {
+    let mut out = String::new();
+    render(value, 0, &mut out)?;
+    out.push('\n');
+    Ok(out)
+}
+
+fn render(value: &Value, indent: usize, out: &mut String) -> Result<(), ComposeError> {
+    let pad = "    ".repeat(indent + 1);
+    let close = "    ".repeat(indent);
+    match value {
+        Value::Map(map) => {
+            if map.is_empty() {
+                out.push_str("()");
+                return Ok(());
+            }
+            out.push_str(
+                "(
+",
+            );
+            for (key, inner) in map.iter() {
+                let Value::String(name) = key else {
+                    return Err(ComposeError::NotAMap("a non-string map key"));
+                };
+                let identifier =
+                    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if !identifier {
+                    return Err(ComposeError::NotAMap("a non-identifier field name"));
+                }
+                out.push_str(&pad);
+                out.push_str(name);
+                out.push_str(": ");
+                render(inner, indent + 1, out)?;
+                out.push_str(
+                    ",
+",
+                );
+            }
+            out.push_str(&close);
+            out.push(')');
+        }
+        Value::Seq(seq) => {
+            if seq.is_empty() {
+                out.push_str("[]");
+                return Ok(());
+            }
+            out.push_str(
+                "[
+",
+            );
+            for inner in seq {
+                out.push_str(&pad);
+                render(inner, indent + 1, out)?;
+                out.push_str(
+                    ",
+",
+                );
+            }
+            out.push_str(&close);
+            out.push(']');
+        }
+        Value::Option(Some(inner)) => {
+            out.push_str("Some(");
+            render(inner, indent, out)?;
+            out.push(')');
+        }
+        leaf => out.push_str(
+            &ron::ser::to_string(leaf)
+                .map_err(|_| ComposeError::NotAMap("an unserializable leaf"))?,
+        ),
+    }
+    Ok(())
+}
+
 /// Named templates. A catalog is the composition scheme's noun for "the
 /// reusable definitions this content set may reference".
 #[derive(Debug, Clone, Default)]
@@ -368,6 +455,21 @@ mod tests {
             diff(&template(), &smaller),
             Err(ComposeError::DiffRemoval(_))
         ));
+    }
+
+    #[test]
+    fn written_ron_keeps_the_authored_style_and_round_trips() {
+        let value = parse(
+            r#"( hull: 40.0, name: "patrol", drive: ( thrust: 10.0 ), tags: [1, 2], extra: (), opt: Some(3) )"#,
+        )
+        .unwrap();
+        let text = write_ron(&value).unwrap();
+        assert!(
+            text.contains("hull: 40.0") && text.contains('(') && !text.contains('{'),
+            "authored struct style, never brace-maps:
+{text}"
+        );
+        assert_eq!(parse(&text).unwrap(), value, "written RON must round-trip");
     }
 
     #[test]
