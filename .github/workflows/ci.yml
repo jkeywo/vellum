@@ -68,6 +68,13 @@ jobs:
           - repo: jkeywo/rogue-hunter
             dir: rogue-hunter
             test: cargo test --workspace
+          # Re-blessable tier, but its fixtures are pinned between blessings,
+          # so "fixtures must not have moved" means the same thing here as for
+          # the sacred two. Its determinism suite includes the seeded-bot
+          # build orders, which is what a vellum change would actually break.
+          - repo: jkeywo/necessary-work
+            dir: necessary-work
+            test: cargo test --workspace
     steps:
       - name: Check out the engine
         uses: actions/checkout@v4
@@ -92,6 +99,7 @@ jobs:
           mkdir -p .cargo
           cat > .cargo/config.toml <<'EOF'
           [patch."https://github.com/jkeywo/vellum"]
+          vellum-corpus = { path = "../vellum/crates/vellum-corpus" }
           vellum-digest = { path = "../vellum/crates/vellum-digest" }
           vellum-grid = { path = "../vellum/crates/vellum-grid" }
           vellum-replay = { path = "../vellum/crates/vellum-replay" }
