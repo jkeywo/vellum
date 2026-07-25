@@ -1,9 +1,26 @@
 name: CI
 
+# Scoped to the Rust surface. The consumer smoke matrix below checks out and
+# builds two whole games, so a pasm/ or docs/ edit must not trigger it —
+# those paths have their own workflows. If branch protection ever marks these
+# jobs required, path-skipped runs report as "expected" and will block; this
+# repo has no protection today, which is why the scoping is safe.
 on:
   push:
     branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
   pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
