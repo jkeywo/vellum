@@ -1,0 +1,20 @@
+[package]
+name = "vellum-corpus"
+description = "The batch-and-report shape of the fleet's autonomous testing: case driving under budgets, stall detection, ordered tallies, and a serializable report envelope."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The report envelope's JSON emission. Off by default so a consumer that only
+# wants the driver and tallies pays for no serialization stack.
+json = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
