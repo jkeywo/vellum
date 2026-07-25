@@ -2,17 +2,25 @@ name: PASM
 
 # The Python package under pasm/ has its own workflow so that a docs or spec
 # edit never burns a full consumer-smoke matrix run, and a crate change never
-# waits on a Python environment.
+# waits on a Python environment. The spec-scan step checks paths across the
+# whole tree (handbook, templates, workflows), so those paths trigger too —
+# this job is cheap; the one being spared is the two-game smoke matrix.
 on:
   push:
     branches: [main]
     paths:
       - "pasm/**"
-      - ".github/workflows/pasm.yml"
+      - "docs/**"
+      - "templates/**"
+      - "actions/**"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "pasm/**"
-      - ".github/workflows/pasm.yml"
+      - "docs/**"
+      - "templates/**"
+      - "actions/**"
+      - ".github/workflows/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,3 +43,9 @@ jobs:
         run: uv sync --group dev
       - name: Tests
         run: uv run pytest -q
+      # The foundation models itself: vellum's own spec, checked by the same
+      # tool the games run.
+      - name: Validate vellum's spec
+        run: uv run pasm validate spec --workspace-root ..
+      - name: Scan the tree against the spec
+        run: uv run pasm scan spec --json --workspace-root .. > /dev/null

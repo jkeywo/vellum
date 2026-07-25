@@ -1,0 +1,27 @@
+# Game tooling pyproject: exists to pull PASM, ships no Python of its own.
+# Copy to the game's pyproject.toml, replace <GAME> and <REV>.
+[project]
+name = "<GAME>-tooling"
+version = "0.1.0"
+description = "Development tooling for <GAME>. Ships no Python; exists to pull PASM."
+requires-python = ">=3.11"
+dependencies = [
+  # PASM lives in the fleet's shared repository, consumed as a subdirectory,
+  # pinned to a rev. Bumping it is part of a vellum bump PR (see vellum's
+  # docs/handbook/bump-workflow.md).
+  "pasm @ git+https://github.com/jkeywo/vellum@<REV>#subdirectory=pasm",
+]
+
+[tool.uv]
+package = false
+
+# Local override against a sibling vellum checkout — uncomment for local
+# work, re-comment before committing. The committed state always resolves
+# the pinned rev.
+# [tool.uv.sources]
+# pasm = { path = "../vellum/pasm", editable = true }
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]

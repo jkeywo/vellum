@@ -1,0 +1,8 @@
+# Fleet-pinned toolchain (see docs/handbook/versions.md). The crates here are
+# consumed by games pinning the same compiler; building them on the same pin
+# keeps "works here, breaks there" out of the bump workflow.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
