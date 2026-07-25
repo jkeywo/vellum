@@ -40,6 +40,12 @@
 use bevy_reflect::{PartialReflect, ReflectMut, ReflectRef};
 use serde::Serialize;
 
+/// The composition mechanism this crate's save path is built on, re-exported
+/// so an editor needs one dependency rather than two: a consumer that
+/// renders a sparse override also needs to *write* it, and that renderer is
+/// `vellum-compose`'s.
+pub use vellum_compose::{self, write_ron, ComposeError};
+
 /// Whether a field is authored, or belongs to a running instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
