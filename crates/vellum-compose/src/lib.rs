@@ -43,6 +43,9 @@ pub enum ComposeError {
     /// An overlay named an authored path that does not exist. The overlay
     /// was not applied — not even the paths that did exist.
     OverlayPathUnknown(String),
+    /// A diff was asked to express the *removal* of a field, which a shallow
+    /// override cannot say.
+    DiffRemoval(String),
     /// The composed value did not deserialize into the requested type.
     Extract(ron::error::Error),
     /// A source string did not parse as RON.
@@ -58,6 +61,12 @@ impl std::fmt::Display for ComposeError {
                 write!(
                     f,
                     "overlay names unknown path '{path}'; nothing was applied"
+                )
+            }
+            ComposeError::DiffRemoval(key) => {
+                write!(
+                    f,
+                    "diff cannot express removing {key}: a shallow override                      has no way to say \"delete this field\""
                 )
             }
             ComposeError::Extract(error) => write!(f, "composed value did not extract: {error}"),
@@ -108,6 +117,93 @@ fn normalize_units(value: Value, nested: bool) -> Value {
         Value::Option(Some(inner)) => Value::Option(Some(Box::new(normalize_units(*inner, true)))),
         other => other,
     }
+}
+
+/// Render a composed value as RON text in the authored style.
+///
+/// `ron`'s own serializer writes a [`Value::Map`] as a brace-map with quoted
+/// keys (`{ "hull": 1.0 }`), because the value layer cannot know a map used
+/// to be a struct. Authored game data is structs, written `(hull: 1.0)`, and
+/// an editor that saved files in a different dialect than authors write them
+/// would make every save a rewrite. This renderer keeps the authored style:
+/// maps as parenthesised bodies with bare identifier keys, sequences in
+/// brackets, and every leaf delegated to `ron`'s serializer so numbers and
+/// strings render exactly as it would.
+///
+/// Map keys must be identifier-like strings (authored field names); anything
+/// else is reported, because it did not come from a struct.
+pub fn write_ron(value: &Value) -> Result<String, ComposeError> {
+    let mut out = String::new();
+    render(value, 0, &mut out)?;
+    out.push('\n');
+    Ok(out)
+}
+
+fn render(value: &Value, indent: usize, out: &mut String) -> Result<(), ComposeError> {
+    let pad = "    ".repeat(indent + 1);
+    let close = "    ".repeat(indent);
+    match value {
+        Value::Map(map) => {
+            if map.is_empty() {
+                out.push_str("()");
+                return Ok(());
+            }
+            out.push_str(
+                "(
+",
+            );
+            for (key, inner) in map.iter() {
+                let Value::String(name) = key else {
+                    return Err(ComposeError::NotAMap("a non-string map key"));
+                };
+                let identifier =
+                    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if !identifier {
+                    return Err(ComposeError::NotAMap("a non-identifier field name"));
+                }
+                out.push_str(&pad);
+                out.push_str(name);
+                out.push_str(": ");
+                render(inner, indent + 1, out)?;
+                out.push_str(
+                    ",
+",
+                );
+            }
+            out.push_str(&close);
+            out.push(')');
+        }
+        Value::Seq(seq) => {
+            if seq.is_empty() {
+                out.push_str("[]");
+                return Ok(());
+            }
+            out.push_str(
+                "[
+",
+            );
+            for inner in seq {
+                out.push_str(&pad);
+                render(inner, indent + 1, out)?;
+                out.push_str(
+                    ",
+",
+                );
+            }
+            out.push_str(&close);
+            out.push(']');
+        }
+        Value::Option(Some(inner)) => {
+            out.push_str("Some(");
+            render(inner, indent, out)?;
+            out.push(')');
+        }
+        leaf => out.push_str(
+            &ron::ser::to_string(leaf)
+                .map_err(|_| ComposeError::NotAMap("an unserializable leaf"))?,
+        ),
+    }
+    Ok(())
 }
 
 /// Named templates. A catalog is the composition scheme's noun for "the
@@ -165,6 +261,44 @@ pub fn apply(base: &Value, overrides: &Value) -> Result<Value, ComposeError> {
         merged.insert(key.clone(), value.clone());
     }
     Ok(Value::Map(merged))
+}
+
+/// The inverse of [`apply`]: the shallow override that takes `base` to
+/// `merged`.
+///
+/// This is the editor's save path: a panel edits a fully-materialised value,
+/// and what belongs in the authored file is only what *differs* from the
+/// template — "a class only needs to say how it differs" survives being
+/// edited. Identical values diff to a unit ("no override"), so
+/// `apply(base, diff(base, merged)?) == merged` holds for every pair of maps
+/// with the same key set.
+///
+/// A key present in `base` but absent from `merged` is unrepresentable as a
+/// shallow override (there is no "remove this field" in the scheme), and is
+/// reported rather than silently dropped.
+pub fn diff(base: &Value, merged: &Value) -> Result<Value, ComposeError> {
+    let Value::Map(base_map) = base else {
+        return Err(ComposeError::NotAMap("diff base"));
+    };
+    let Value::Map(merged_map) = merged else {
+        return Err(ComposeError::NotAMap("diff target"));
+    };
+    for key in base_map.keys() {
+        if merged_map.get(key).is_none() {
+            return Err(ComposeError::DiffRemoval(format!("{key:?}")));
+        }
+    }
+    let mut overrides = ron::Map::new();
+    for (key, value) in merged_map.iter() {
+        if base_map.get(key) != Some(value) {
+            overrides.insert(key.clone(), value.clone());
+        }
+    }
+    if overrides.is_empty() {
+        Ok(Value::Unit)
+    } else {
+        Ok(Value::Map(overrides))
+    }
 }
 
 /// Stack layers in declared order: the first layer is the base, each later
@@ -292,6 +426,50 @@ mod tests {
         good.insert("data/ships.ron", parse("( hull: 1.0 )").unwrap());
         good.apply_to(&mut content).unwrap();
         assert_eq!(content["data/ships.ron"], parse("( hull: 1.0 )").unwrap());
+    }
+
+    #[test]
+    fn diff_is_the_inverse_of_apply() {
+        let base = template();
+        let edited = apply(&base, &parse("( hull: 40.0 )").unwrap()).unwrap();
+        let overrides = diff(&base, &edited).unwrap();
+        assert_eq!(overrides, parse("( hull: 40.0 )").unwrap());
+        assert_eq!(
+            apply(&base, &overrides).unwrap(),
+            edited,
+            "apply(base, diff(base, merged)) must reproduce merged"
+        );
+    }
+
+    #[test]
+    fn an_unedited_value_diffs_to_no_override() {
+        let overrides = diff(&template(), &template()).unwrap();
+        assert_eq!(overrides, Value::Unit, "identical values need no override");
+        assert_eq!(apply(&template(), &overrides).unwrap(), template());
+    }
+
+    #[test]
+    fn a_removed_field_is_reported_not_dropped() {
+        let smaller = parse("( hull: 100.0 )").unwrap();
+        assert!(matches!(
+            diff(&template(), &smaller),
+            Err(ComposeError::DiffRemoval(_))
+        ));
+    }
+
+    #[test]
+    fn written_ron_keeps_the_authored_style_and_round_trips() {
+        let value = parse(
+            r#"( hull: 40.0, name: "patrol", drive: ( thrust: 10.0 ), tags: [1, 2], extra: (), opt: Some(3) )"#,
+        )
+        .unwrap();
+        let text = write_ron(&value).unwrap();
+        assert!(
+            text.contains("hull: 40.0") && text.contains('(') && !text.contains('{'),
+            "authored struct style, never brace-maps:
+{text}"
+        );
+        assert_eq!(parse(&text).unwrap(), value, "written RON must round-trip");
     }
 
     #[test]
