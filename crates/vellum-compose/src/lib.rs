@@ -76,8 +76,38 @@ pub fn parse(text: &str) -> Result<Value, ComposeError> {
 /// Deserialize a composed value into the game's own type — the typed exit
 /// from value-space, where the game's schema (including its
 /// unknown-field policy) gets the final word.
+///
+/// One normalization happens on the way out: RON's `field: ()` idiom — "this
+/// struct, all defaults" — parses into the value layer as a bare unit, which
+/// cannot deserialize into a struct. Extraction re-interprets unit values
+/// *nested inside* maps and sequences as empty structs, which is what the
+/// author wrote. The root value is left alone (a unit root is the "no
+/// override" idiom, not an empty struct), and genuinely-unit-typed fields do
+/// not occur in authored game data.
 pub fn extract<T: DeserializeOwned>(value: Value) -> Result<T, ComposeError> {
-    value.into_rust().map_err(ComposeError::Extract)
+    normalize_units(value, false)
+        .into_rust()
+        .map_err(ComposeError::Extract)
+}
+
+/// See [`extract`]: nested units become empty structs (empty maps at the
+/// value level); the root keeps its meaning.
+fn normalize_units(value: Value, nested: bool) -> Value {
+    match value {
+        Value::Unit if nested => Value::Map(ron::Map::new()),
+        Value::Map(map) => Value::Map(
+            map.into_iter()
+                .map(|(key, inner)| (key, normalize_units(inner, true)))
+                .collect(),
+        ),
+        Value::Seq(seq) => Value::Seq(
+            seq.into_iter()
+                .map(|inner| normalize_units(inner, true))
+                .collect(),
+        ),
+        Value::Option(Some(inner)) => Value::Option(Some(Box::new(normalize_units(*inner, true)))),
+        other => other,
+    }
 }
 
 /// Named templates. A catalog is the composition scheme's noun for "the
@@ -282,6 +312,26 @@ mod tests {
                 name: "patrol".into()
             }
         );
+    }
+
+    #[test]
+    fn a_unit_field_extracts_as_a_defaulted_struct() {
+        // RON's `field: ()` idiom: "this struct, all defaults". The value
+        // layer flattens it to a unit; extraction restores the meaning.
+        #[derive(Debug, Default, PartialEq, Deserialize)]
+        #[serde(default)]
+        struct Drive {
+            thrust: f64,
+        }
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct Ship {
+            hull: f64,
+            drive: Drive,
+        }
+        let value = parse("( hull: 50.0, drive: () )").unwrap();
+        let ship: Ship = extract(value).unwrap();
+        assert_eq!(ship.drive, Drive::default());
+        assert_eq!(ship.hull, 50.0);
     }
 
     #[test]
