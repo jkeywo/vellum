@@ -4,10 +4,12 @@ members = [
   "crates/vellum-compose",
   "crates/vellum-corpus",
   "crates/vellum-digest",
+  "crates/vellum-editor",
   "crates/vellum-grid",
   "crates/vellum-perf",
   "crates/vellum-replay",
   "crates/vellum-rng",
+  "crates/vellum-script",
   "crates/vellum-strings",
 ]
 
@@ -34,6 +36,18 @@ ron = "0.12"
 # Reports only (vellum-corpus's optional `json` feature); nothing in the
 # byte-layout path emits JSON.
 serde_json = "1"
+
+# vellum-editor. These two are *version-coupled to the consumer*: a reflected
+# value crosses the crate boundary, and `egui::Ui` must be the very type the
+# consumer's `bevy_egui` re-exports, or the panel will not typecheck. Pinned
+# to what the fleet standard (Bevy 0.19 / bevy_egui 0.41) resolves.
+bevy_reflect = "0.19"
+egui = "0.35"
+
+# vellum-script. `no_float` because authored content is integer-only for
+# determinism — a float in a saved campaign is a platform-dependent
+# fingerprint waiting to happen.
+rhai = { version = "1.25", features = ["sync", "no_float"] }
 
 [workspace.lints.rust]
 # The stricter of the two consumers.

@@ -1,0 +1,19 @@
+[package]
+name = "vellum-script"
+description = "The fleet's deterministic Rhai host: a deny-by-default sandbox profile, content-source hashing, and the context-in/effects-out call seam."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# `sync` because a host is shared across a game's systems; `no_float`
+# because authored content is integer-only — a float in a saved campaign is
+# a platform-dependent fingerprint waiting to happen.
+rhai = { workspace = true }
+# Content hashing: the same FNV-1a every other fleet fingerprint uses.
+vellum-digest = { path = "../vellum-digest" }

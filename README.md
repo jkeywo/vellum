@@ -41,6 +41,8 @@ This is the part that was genuinely the same.
 | `vellum-corpus` | the batch-and-report shape of autonomous testing: case driving under budgets, stall detection, tallies, the report envelope |
 | `vellum-perf` | the cross-runtime measurement contract: metric series and summaries, captures with provenance, versioned baselines compared warnings-first |
 | `vellum-compose` | the content-composition mechanism: template catalogs, shallow explicit overrides, layer stacking, all-or-nothing overlays |
+| `vellum-editor` | the runtime data-editor mechanism: a reflection walker, field descriptors, and the sparse save path |
+| `vellum-script` | the deterministic Rhai host: a deny-by-default sandbox, content hashing, the call seam |
 
 ## The constraint everything here is shaped by
 
