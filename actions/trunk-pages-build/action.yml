@@ -1,0 +1,46 @@
+name: Trunk Pages build
+description: >
+  Build a Trunk site for GitHub Pages the fleet way: trunk build --release
+  with the project-subpath public URL, .nojekyll, and the dist uploaded as
+  the Pages artifact. For repos that keep bespoke workflows; fleet-ci.yml
+  inlines the same steps.
+
+inputs:
+  working-directory:
+    description: Directory holding Trunk.toml / index.html.
+    default: "."
+  public-url:
+    description: Trunk --public-url; defaults to /<repository name>/.
+    default: ""
+  pages-dir:
+    description: Directory uploaded as the Pages artifact.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: jetli/trunk-action@v0.5.0
+    - name: Trunk build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        public_url="${{ inputs.public-url }}"
+        if [ -z "$public_url" ]; then
+          public_url="/${{ github.event.repository.name }}/"
+        fi
+        trunk build --release --public-url "$public_url"
+    - name: Resolve artifact directory
+      id: artifact
+      shell: bash
+      run: |
+        dir="${{ inputs.pages-dir }}"
+        if [ -z "$dir" ]; then
+          dir="${{ inputs.working-directory }}/dist"
+        fi
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+    - name: Keep Pages from running Jekyll
+      shell: bash
+      run: touch "${{ steps.artifact.outputs.dir }}/.nojekyll"
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: ${{ steps.artifact.outputs.dir }}
