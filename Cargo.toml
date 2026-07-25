@@ -1,9 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/vellum-compose",
   "crates/vellum-corpus",
   "crates/vellum-digest",
   "crates/vellum-grid",
+  "crates/vellum-perf",
   "crates/vellum-replay",
   "crates/vellum-rng",
   "crates/vellum-strings",
