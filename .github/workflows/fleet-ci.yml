@@ -146,6 +146,12 @@ jobs:
     runs-on: ${{ inputs.runner }}
     steps:
       - uses: actions/checkout@v4
+      # Build scripts and proc-macros compile for the host even in a wasm
+      # build, so a repo that needs system packages natively may need them
+      # here too. Harmless when empty.
+      - name: System packages
+        if: inputs.apt-packages != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.apt-packages }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
