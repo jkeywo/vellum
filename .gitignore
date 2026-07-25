@@ -26,3 +26,10 @@ Cargo.lock
 # Local path overrides pointing at a checkout of a consuming game. Never
 # committed: a leaked override would silently build CI against the wrong code.
 .cargo/config.toml
+
+# Python (the pasm package lives under pasm/)
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.uv-cache*/
