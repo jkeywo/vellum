@@ -62,12 +62,17 @@ jobs:
       fail-fast: false
       matrix:
         game:
+          # The terminal games need no system packages; necessary-work's
+          # workspace test builds its Bevy client, which wants ALSA/udev on
+          # ubuntu.
           - repo: jkeywo/project-murmur
             dir: project-murmur
             test: cargo test --workspace --exclude murmur-web
+            apt: ""
           - repo: jkeywo/rogue-hunter
             dir: rogue-hunter
             test: cargo test --workspace
+            apt: ""
           # Re-blessable tier, but its fixtures are pinned between blessings,
           # so "fixtures must not have moved" means the same thing here as for
           # the sacred two. Its determinism suite includes the seeded-bot
@@ -75,6 +80,7 @@ jobs:
           - repo: jkeywo/necessary-work
             dir: necessary-work
             test: cargo test --workspace
+            apt: libasound2-dev libudev-dev
     steps:
       - name: Check out the engine
         uses: actions/checkout@v4
@@ -85,6 +91,9 @@ jobs:
         with:
           repository: ${{ matrix.game.repo }}
           path: ${{ matrix.game.dir }}
+      - name: System packages
+        if: matrix.game.apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.game.apt }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
