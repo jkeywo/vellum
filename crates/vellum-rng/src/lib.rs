@@ -29,19 +29,12 @@
 //!   [`Pcg32::range_inclusive`], [`Pcg32::chance`], [`Pcg32::pick_index`],
 //!   [`Pcg32::shuffle`] — live here, defined over the one `below`.
 //!
-//! The legacy entry points remain, deprecated, until both roguelikes finish
-//! their migrations and re-bless their fixtures; then they go.
-//!
 //! There is deliberately still no `Rng` trait: one implementation does not
 //! need an abstraction.
 
 use serde::{Deserialize, Serialize};
 
 const MULTIPLIER: u64 = 6364136223846793005;
-
-/// The increment used by the SplitMix-seeded, single-stream construction.
-/// Knuth's LCG addend, and odd, as PCG requires.
-const FIXED_INCREMENT: u64 = 1442695040888963407;
 
 /// PCG-XSH-RR 64/32: 64 bits of state, an odd increment selecting the stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,21 +72,6 @@ impl Pcg32 {
         rng
     }
 
-    /// A single stream, seeded through SplitMix64 and using a fixed
-    /// increment.
-    ///
-    /// The SplitMix pass is what lets a low-entropy seed a player typed in —
-    /// `42`, `7`, `0` — start from well-mixed state instead of walking
-    /// through a predictable neighbourhood of the sequence.
-    #[deprecated(note = "the fleet converged on Pcg32::seeded; this stays only until \
-                rogue-hunter's migration re-blesses its fixtures")]
-    pub fn splitmix_fixed_inc(seed: u64) -> Self {
-        Self {
-            state: split_mix_64(seed),
-            inc: FIXED_INCREMENT,
-        }
-    }
-
     /// Rebuild a generator from raw state, for tools and tests that store
     /// parts.
     ///
@@ -109,10 +87,6 @@ impl Pcg32 {
     pub const fn into_parts(self) -> (u64, u64) {
         (self.state, self.inc)
     }
-
-    /// The increment used by [`Pcg32::splitmix_fixed_inc`], for a consumer
-    /// storing only the state half.
-    pub const FIXED_INCREMENT: u64 = FIXED_INCREMENT;
 
     fn step(&mut self) {
         self.state = self.state.wrapping_mul(MULTIPLIER).wrapping_add(self.inc);
@@ -143,33 +117,6 @@ impl Pcg32 {
             let product = u64::from(value) * u64::from(bound);
             if (product as u32) >= threshold {
                 return (product >> 32) as u32;
-            }
-        }
-    }
-
-    /// Uniform in `0..bound`, by Lemire's multiply-and-shift.
-    #[deprecated(note = "renamed to Pcg32::below — the fleet's one bounded draw")]
-    pub fn below_lemire(&mut self, bound: u32) -> u32 {
-        self.below(bound)
-    }
-
-    /// Uniform in `0..bound`, by rejection then remainder.
-    ///
-    /// Rejects the short leading interval that would make low values slightly
-    /// more likely, then takes the remainder. Not interchangeable with
-    /// [`Self::below`]: for the same generator state the two return
-    /// different values.
-    #[deprecated(
-        note = "the fleet converged on Pcg32::below (Lemire); this stays only \
-                until rogue-hunter's migration re-blesses its fixtures"
-    )]
-    pub fn below_modulo(&mut self, bound: u32) -> u32 {
-        debug_assert!(bound > 0, "below_modulo requires a non-zero bound");
-        let threshold = bound.wrapping_neg() % bound;
-        loop {
-            let value = self.next_u32();
-            if value >= threshold {
-                return value % bound;
             }
         }
     }
@@ -232,55 +179,6 @@ mod tests {
         }
     }
 
-    /// The sequence rogue-hunter's saved runs were recorded against. Pinned
-    /// here as well as in that game, so an engine change fails in both places.
-    #[test]
-    #[allow(deprecated)]
-    fn splitmix_fixed_inc_matches_the_pinned_sequence() {
-        let mut rng = Pcg32::splitmix_fixed_inc(0);
-        let first: Vec<u32> = (0..4).map(|_| rng.next_u32()).collect();
-        assert_eq!(first, [1092706980, 278790474, 1039822109, 1377468856]);
-    }
-
-    /// The two constructions must not accidentally converge. If they ever
-    /// produced the same stream, one game's saves would be readable as the
-    /// other's and the distinction this crate is built around would be a lie.
-    #[test]
-    #[allow(deprecated)]
-    fn the_two_constructions_are_different_generators() {
-        let mut canonical = Pcg32::canonical(0, 1);
-        let mut splitmix = Pcg32::splitmix_fixed_inc(0);
-        let a: Vec<u32> = (0..16).map(|_| canonical.next_u32()).collect();
-        let b: Vec<u32> = (0..16).map(|_| splitmix.next_u32()).collect();
-        assert_ne!(a, b);
-    }
-
-    /// The heart of it. Both draws are correct; they are not the same
-    /// function. This test exists so that nobody "simplifies" the pair into
-    /// one and silently rewrites every saved run in both games.
-    #[test]
-    #[allow(deprecated)]
-    fn the_two_bounded_draws_disagree() {
-        let mut differed = 0;
-        for bound in [3u32, 6, 100, 1000] {
-            let mut lemire = Pcg32::splitmix_fixed_inc(0);
-            let mut modulo = Pcg32::splitmix_fixed_inc(0);
-            for _ in 0..256 {
-                let a = lemire.below(bound);
-                let b = modulo.below_modulo(bound);
-                assert!(a < bound && b < bound, "a draw escaped its bound");
-                if a != b {
-                    differed += 1;
-                }
-            }
-        }
-        assert!(
-            differed > 0,
-            "the two bounded draws produced identical output; one of them has \
-             been rewritten into the other"
-        );
-    }
-
     #[test]
     fn streams_are_independent() {
         let mut one = Pcg32::canonical(42, 1);
@@ -300,12 +198,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn bounded_draws_stay_in_range() {
-        let mut rng = Pcg32::splitmix_fixed_inc(7);
+        let mut rng = Pcg32::seeded(7, 0);
         for _ in 0..2000 {
             assert!(rng.below(5) < 5);
-            assert!(rng.below_modulo(5) < 5);
         }
     }
 
@@ -313,13 +209,11 @@ mod tests {
     /// so it is where a rejection loop written the wrong way round would spin
     /// or bias. Both must still terminate and stay in range.
     #[test]
-    #[allow(deprecated)]
     fn the_worst_case_bound_terminates() {
-        let mut rng = Pcg32::splitmix_fixed_inc(1);
+        let mut rng = Pcg32::seeded(1, 0);
         let bound = 0x8000_0001u32;
         for _ in 0..1000 {
             assert!(rng.below(bound) < bound);
-            assert!(rng.below_modulo(bound) < bound);
         }
     }
 
@@ -388,22 +282,6 @@ mod tests {
         let mut b = rebuilt;
         for _ in 0..64 {
             assert_eq!(a.next_u32(), b.next_u32());
-        }
-    }
-
-    /// A consumer storing only the state half must be able to reconstruct the
-    /// single-stream generator exactly.
-    #[test]
-    #[allow(deprecated)]
-    fn a_state_only_consumer_can_rebuild_the_fixed_stream() {
-        let mut original = Pcg32::splitmix_fixed_inc(0);
-        let mut stored = original.clone().into_parts().0;
-
-        for _ in 0..64 {
-            let mut borrowed = Pcg32::from_parts(stored, Pcg32::FIXED_INCREMENT);
-            let drawn = borrowed.next_u32();
-            stored = borrowed.into_parts().0;
-            assert_eq!(drawn, original.next_u32());
         }
     }
 }
