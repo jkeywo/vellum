@@ -1,0 +1,25 @@
+[package]
+name = "vellum-editor"
+description = "The fleet's runtime data-editor mechanism: a reflection walker that renders any tuning struct as editable widgets, per-field descriptors, and the sparse save path through vellum-compose."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Field enumeration and typed read/write — the whole reason one walker can
+# handle a struct it has never heard of.
+bevy_reflect = { workspace = true }
+# Widgets only. Depending on `egui` rather than `bevy_egui` keeps a whole
+# engine integration out of this crate; the consumer passes the `Ui` its own
+# `bevy_egui` hands it, which is this very type when the versions match.
+egui = { workspace = true }
+# The sparse save path: diff an edited value against its defaults and render
+# the result in the authored style.
+vellum-compose = { path = "../vellum-compose" }
+serde = { workspace = true }
+ron = { workspace = true }
