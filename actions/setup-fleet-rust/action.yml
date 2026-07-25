@@ -1,0 +1,32 @@
+name: Setup fleet Rust
+description: >
+  Toolchain + cache the fleet way: dtolnay/rust-toolchain pinned to the fleet
+  default with rustfmt and clippy, plus Swatinem/rust-cache. For repos that
+  keep bespoke workflows; fleet-ci.yml inlines the same steps (a reusable
+  workflow cannot reference its own repo's local actions).
+
+inputs:
+  toolchain:
+    description: Toolchain to install; repos with rust-toolchain.toml win at cargo time.
+    default: "1.95.0"
+  components:
+    description: Toolchain components.
+    default: rustfmt, clippy
+  targets:
+    description: Extra compilation targets (e.g. wasm32-unknown-unknown).
+    default: ""
+  cache-workspaces:
+    description: Workspaces argument passed to Swatinem/rust-cache.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.cache-workspaces }}

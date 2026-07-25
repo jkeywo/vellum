@@ -1,0 +1,208 @@
+name: Fleet CI
+
+# The opinionated CI for every game in the fleet. A game's own ci.yml becomes a
+# thin caller (see templates/ci.yml) pinned to a rev of this repository — the
+# same pin-and-bump discipline as the Cargo and pasm dependencies.
+#
+# Jobs: pasm (spec validate + scan gate), rust (fmt, clippy -D warnings, test),
+# wasm (Trunk or wasm-pack build, uploaded as the Pages artifact), deploy
+# (GitHub Pages, main-branch pushes only). The caller must grant
+# `contents: read`, `pages: write`, `id-token: write` for the deploy job, and
+# should set workflow-level concurrency (a called workflow cannot).
+#
+# Steps are inlined rather than delegated to this repo's composite actions:
+# `uses: ./...` in a reusable workflow resolves against the *caller's*
+# checkout, and a self-reference by rev would defeat stacked development. The
+# composites under actions/ carry the same steps for repos that keep bespoke
+# workflows (project-phoenix-v2, rogue-hunter's hand-rolled web build).
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner image for every job.
+        type: string
+        default: ubuntu-latest
+      rust-toolchain:
+        description: >
+          Toolchain when the repo has no rust-toolchain.toml. Repos that pin
+          one win automatically: rustup defers to the file at cargo time.
+        type: string
+        default: 1.95.0
+      apt-packages:
+        description: >
+          Extra apt packages for the rust job (Bevy native tests on ubuntu
+          typically need "libasound2-dev libudev-dev").
+        type: string
+        default: ""
+      test-command:
+        description: Test invocation for the rust job.
+        type: string
+        default: cargo test --workspace
+      extra-check-commands:
+        description: >
+          Extra shell run after tests in the rust job, one command per line
+          (corpus runs, content validation, replay acceptance).
+        type: string
+        default: ""
+      pasm-spec-path:
+        description: Spec directory passed to pasm validate/scan.
+        type: string
+        default: pasm/spec
+      pasm-scan:
+        description: "pasm scan mode: gate | advisory | off."
+        type: string
+        default: gate
+      pasm-scenario-glob:
+        description: If set, every match runs through `pasm scenario`.
+        type: string
+        default: ""
+      wasm-mode:
+        description: "Web build: trunk | wasm-pack | none."
+        type: string
+        default: trunk
+      trunk-working-directory:
+        description: Directory holding Trunk.toml / index.html.
+        type: string
+        default: "."
+      wasm-pack-crate:
+        description: Crate directory for wasm-mode wasm-pack.
+        type: string
+        default: ""
+      pages-dir:
+        description: >
+          Directory uploaded as the Pages artifact. Defaults to <trunk
+          working directory>/dist for trunk mode; wasm-pack mode must set it.
+        type: string
+        default: ""
+      public-url:
+        description: Trunk --public-url. Defaults to /<repository name>/.
+        type: string
+        default: ""
+      deploy:
+        description: Deploy the wasm artifact to GitHub Pages on main pushes.
+        type: boolean
+        default: true
+
+jobs:
+  pasm:
+    name: PASM spec
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync tooling
+        run: uv sync
+      - name: Validate the model
+        run: uv run pasm validate ${{ inputs.pasm-spec-path }}
+      - name: Scan the implementation against the model
+        if: inputs.pasm-scan != 'off'
+        run: |
+          if [ "${{ inputs.pasm-scan }}" = "advisory" ]; then
+            uv run pasm scan ${{ inputs.pasm-spec-path }} --json > pasm-scan.json || true
+          else
+            uv run pasm scan ${{ inputs.pasm-spec-path }} --json > pasm-scan.json
+          fi
+      - name: Scenarios
+        if: inputs.pasm-scenario-glob != ''
+        run: |
+          shopt -s nullglob
+          found=0
+          for scenario in ${{ inputs.pasm-scenario-glob }}; do
+            found=1
+            uv run pasm scenario "$scenario"
+          done
+          if [ "$found" = "0" ]; then
+            echo "No scenarios matched '${{ inputs.pasm-scenario-glob }}'" >&2
+            exit 1
+          fi
+
+  rust:
+    name: Format, lint, tests
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        if: inputs.apt-packages != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.apt-packages }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: ${{ inputs.test-command }}
+      - name: Extra checks
+        if: inputs.extra-check-commands != ''
+        run: ${{ inputs.extra-check-commands }}
+
+  wasm:
+    name: Web build
+    if: inputs.wasm-mode != 'none'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install trunk
+        if: inputs.wasm-mode == 'trunk'
+        uses: jetli/trunk-action@v0.5.0
+      - name: Trunk build
+        if: inputs.wasm-mode == 'trunk'
+        working-directory: ${{ inputs.trunk-working-directory }}
+        run: |
+          public_url="${{ inputs.public-url }}"
+          if [ -z "$public_url" ]; then
+            public_url="/${{ github.event.repository.name }}/"
+          fi
+          trunk build --release --public-url "$public_url"
+      - name: Install wasm-pack
+        if: inputs.wasm-mode == 'wasm-pack'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - name: wasm-pack build
+        if: inputs.wasm-mode == 'wasm-pack'
+        run: wasm-pack build ${{ inputs.wasm-pack-crate }} --target web --release
+      - name: Resolve artifact directory
+        id: artifact
+        run: |
+          dir="${{ inputs.pages-dir }}"
+          if [ -z "$dir" ]; then
+            dir="${{ inputs.trunk-working-directory }}/dist"
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      - name: Keep Pages from running Jekyll
+        run: touch "${{ steps.artifact.outputs.dir }}/.nojekyll"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.artifact.outputs.dir }}
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: >
+      inputs.deploy && inputs.wasm-mode != 'none' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [pasm, rust, wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,42 @@
+# Fleet CI caller. Copy to .github/workflows/ci.yml and pin <REV> to a vellum
+# rev — the same rev the repo pins in Cargo.toml / pyproject.toml where those
+# pins exist; a vellum bump PR aligns all of them in one diff.
+#
+# Every `with:` line shows its default; delete the ones you don't change.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The deploy job inside fleet-ci needs pages + id-token; a called workflow can
+# only narrow what the caller grants.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fleet:
+    uses: jkeywo/vellum/.github/workflows/fleet-ci.yml@<REV>
+    with:
+      # runner: ubuntu-latest
+      # rust-toolchain: "1.95.0"        # repos with rust-toolchain.toml win anyway
+      # apt-packages: ""                # Bevy native tests: "libasound2-dev libudev-dev"
+      # test-command: cargo test --workspace
+      # extra-check-commands: ""        # one command per line
+      # pasm-spec-path: pasm/spec
+      # pasm-scan: gate                 # gate | advisory | off
+      # pasm-scenario-glob: ""          # e.g. tests/replays/*.yaml
+      # wasm-mode: trunk                # trunk | wasm-pack | none
+      # trunk-working-directory: "."    # where Trunk.toml lives
+      # wasm-pack-crate: ""             # wasm-pack mode only
+      # pages-dir: ""                   # defaults to <trunk dir>/dist
+      # public-url: ""                  # defaults to /<repo name>/
+      # deploy: true                    # Pages deploy on main pushes
+      wasm-mode: trunk

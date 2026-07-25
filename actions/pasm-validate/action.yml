@@ -1,0 +1,50 @@
+name: PASM validate
+description: >
+  Validate a PASM spec the fleet way: uv-synced tooling, `pasm validate` as a
+  gate, `pasm scan` gated or advisory, optional scenario runs. For repos that
+  keep bespoke workflows; fleet-ci.yml inlines the same steps.
+
+inputs:
+  spec-path:
+    description: Spec directory.
+    default: pasm/spec
+  scan:
+    description: "Scan mode: gate | advisory | off."
+    default: gate
+  scenario-glob:
+    description: If set, every match runs through `pasm scenario`.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v6
+    - name: Sync tooling
+      shell: bash
+      run: uv sync
+    - name: Validate the model
+      shell: bash
+      run: uv run pasm validate ${{ inputs.spec-path }}
+    - name: Scan the implementation against the model
+      if: inputs.scan != 'off'
+      shell: bash
+      run: |
+        if [ "${{ inputs.scan }}" = "advisory" ]; then
+          uv run pasm scan ${{ inputs.spec-path }} --json > pasm-scan.json || true
+        else
+          uv run pasm scan ${{ inputs.spec-path }} --json > pasm-scan.json
+        fi
+    - name: Scenarios
+      if: inputs.scenario-glob != ''
+      shell: bash
+      run: |
+        shopt -s nullglob
+        found=0
+        for scenario in ${{ inputs.scenario-glob }}; do
+          found=1
+          uv run pasm scenario "$scenario"
+        done
+        if [ "$found" = "0" ]; then
+          echo "No scenarios matched '${{ inputs.scenario-glob }}'" >&2
+          exit 1
+        fi
