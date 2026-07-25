@@ -1,0 +1,18 @@
+# Minimal model exercising scenario validation: a role-owned action that
+# produces a fact, and information gated on that fact. The authored-spec
+# equivalents live in each consuming game's own pasm/spec.
+entities:
+  - role: engineering
+    core: {status: accepted}
+  - role: station-owner
+    core: {status: accepted}
+  - verb: dispatch-repair-team
+    core: {status: accepted}
+    game_design:
+      owner_role: engineering
+      produces_facts: [team-arrived]
+  - information: onsite-noncore-damage-detail-information
+    core: {status: accepted}
+    game_design:
+      visibility: hidden
+      reveal_conditions: [team-arrived]

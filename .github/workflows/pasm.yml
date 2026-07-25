@@ -1,0 +1,37 @@
+name: PASM
+
+# The Python package under pasm/ has its own workflow so that a docs or spec
+# edit never burns a full consumer-smoke matrix run, and a crate change never
+# waits on a Python environment.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pasm/**"
+      - ".github/workflows/pasm.yml"
+  pull_request:
+    paths:
+      - "pasm/**"
+      - ".github/workflows/pasm.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Package tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pasm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync dev environment
+        run: uv sync --group dev
+      - name: Tests
+        run: uv run pytest -q

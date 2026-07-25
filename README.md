@@ -1,5 +1,22 @@
 # vellum
 
+The shared foundation for a fleet of Rust/Bevy games. What lives here:
+
+| directory | what it is | rules |
+|---|---|---|
+| `crates/` | the engine layer — digest, rng, strings, replay, grid | **the no-fingerprint-moves charter below** |
+| `pasm/` | the PASM spec tool (Python), consumed by every game as a git subdirectory dependency | ordinary rules |
+| `pasm/spec/` | vellum's own PASM spec — the foundation models itself | ordinary rules |
+| `docs/handbook/` | fleet conventions: versions, architecture, CI, content, determinism tiers | ordinary rules |
+| `templates/` | per-game starting points: AGENTS.md, CI callers, Trunk shell | ordinary rules |
+| `.github/workflows/fleet-*.yml` | reusable CI/Pages workflows the games call, pinned by rev | ordinary rules |
+
+The no-fingerprint-moves rule governs `crates/` only; `pasm/`, `docs/`,
+`templates/`, and the fleet workflows evolve on ordinary rules. The rest of
+this README is the engine layer's charter.
+
+## The engine layer
+
 A Rust roguelike engine layer — specifically, the layer underneath two terminal
 roguelikes ([project-murmur](https://github.com/jkeywo/project-murmur) and
 [rogue-hunter](https://github.com/jkeywo/rogue-hunter)) that turned out to be
