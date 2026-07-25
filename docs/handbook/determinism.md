@@ -9,10 +9,17 @@ earned it — a save that *is* a seed plus a command log.
 **Sacred** — project-murmur and rogue-hunter. A save is a seed and a command
 log; loading replays. The RNG byte stream, every digest, and the serialised
 shape of everything reachable from sim state are part of the save format. No
-change in `crates/` may move any of their fingerprints, and the consumer
-smoke matrix in this repository's CI enforces it: every push builds both
-games against HEAD, runs their determinism suites, and fails if a golden,
-fixture, or trace file moved.
+change in `crates/` may move any of their fingerprints *by accident*, and the
+consumer smoke matrix in this repository's CI enforces it: every push builds
+both games against HEAD, runs their determinism suites, and fails if a
+golden, fixture, or trace file moved.
+
+Sacred fingerprints may still move by **coordinated fleet decision** — a
+recorded decision in vellum's spec, a two-phase migration (new API added
+alongside the old; each game migrates and re-blesses in its own PR; the old
+API removed once both are off it), and the smoke matrix green at every
+intermediate step. The RNG unification (`rng-unification-breaks-saves`) is
+the template.
 
 **Re-blessable** — everyone else. These games may adopt a shared crate even
 when it changes their RNG stream or hash values, by *deliberately* breaking

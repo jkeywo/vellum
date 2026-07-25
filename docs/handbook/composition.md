@@ -37,7 +37,21 @@ data editor and the-usual's growing content set.
 
 A shared crate (`vellum-compose`: format-neutral template resolution,
 override merge, layer stacking, overlay application over serde values) is
-built only when void-and-thunder's editor needs it, per
+built when void-and-thunder's editor needs it, per
 `new-crates-need-a-consumer`. Phoenix's implementation is the design source
 and stays home — its `config.rs` and flag machinery are game schema, not
 mechanism.
+
+**This is a content pipeline, and that is now in scope.** The original
+charter excluded content pipelines ("a convention, not a mechanism"); the
+fleet decided otherwise (`content-pipeline-is-in-scope`): the composition
+scheme becomes a shared pipeline integrated across the games over time —
+how far a unified pipeline can go is an open, live question, answered by
+adoption rather than speculation.
+
+**Model sidecars** are part of the scheme. Phoenix pairs each `.glb` with a
+`*.model.toml` sidecar describing rig variants, markers, and extents —
+authored data about an asset, next to the asset, in the same
+template/override world as everything else. void-and-thunder's ship models
+want exactly this (rig points for hardpoints/trails/boarding instead of
+constants), and it is the natural first cross-game piece of the pipeline.
