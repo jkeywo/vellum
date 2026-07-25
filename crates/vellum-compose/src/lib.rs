@@ -66,7 +66,7 @@ impl std::fmt::Display for ComposeError {
             ComposeError::DiffRemoval(key) => {
                 write!(
                     f,
-                    "diff cannot express removing {key}: a shallow override has no                      way to say \"delete this field\""
+                    "diff cannot express removing {key}: a shallow override                      has no way to say \"delete this field\""
                 )
             }
             ComposeError::Extract(error) => write!(f, "composed value did not extract: {error}"),
