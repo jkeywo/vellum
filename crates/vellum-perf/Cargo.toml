@@ -1,0 +1,26 @@
+[package]
+name = "vellum-perf"
+description = "The fleet's cross-runtime measurement contract: metric series and summaries, captures with provenance, and versioned baselines compared warnings-first."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# JSON emission for captures and findings — the artifact CI stores. Off by
+# default so a consumer that only samples and summarises pays for no
+# serialization stack beyond serde itself.
+json = ["dep:serde_json"]
+
+[dependencies]
+# serde is unconditional: baselines are authored, versioned files, and a
+# baseline that cannot serialize is not a baseline.
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+ron = { workspace = true }

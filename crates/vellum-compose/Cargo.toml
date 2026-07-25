@@ -1,0 +1,18 @@
+[package]
+name = "vellum-compose"
+description = "The fleet's content-composition mechanism: named template catalogs, shallow explicit overrides, layer stacking, and all-or-nothing overlays over RON values."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The first front-end is RON — the format of the driving consumer's data.
+# The mechanism is value-level merge; a TOML front-end arrives if and when a
+# TOML game migrates onto the crate rather than keeping its scheme in-repo.
+ron = { workspace = true }
+serde = { workspace = true }

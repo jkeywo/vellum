@@ -39,6 +39,8 @@ This is the part that was genuinely the same.
 | `vellum-replay` | the `Simulation` trait, the replay driver, and contract checks |
 | `vellum-grid` | deterministic shortest-path search, priced by the caller |
 | `vellum-corpus` | the batch-and-report shape of autonomous testing: case driving under budgets, stall detection, tallies, the report envelope |
+| `vellum-perf` | the cross-runtime measurement contract: metric series and summaries, captures with provenance, versioned baselines compared warnings-first |
+| `vellum-compose` | the content-composition mechanism: template catalogs, shallow explicit overrides, layer stacking, all-or-nothing overlays |
 
 ## The constraint everything here is shaped by
 
