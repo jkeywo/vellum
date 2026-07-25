@@ -1,0 +1,16 @@
+# Trunk builds the wasm/web client from index.html. `data-bin` in index.html
+# selects the binary; cargo builds it for wasm32 across the workspace.
+#
+# Local dev:   trunk serve         (http://localhost:8080)
+# Local build: trunk build --release
+# CI passes --public-url /<repo-name>/ so asset paths resolve under the
+# project subpath on github.io — a wrong public URL is a white page with
+# 404ing assets.
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+address = "127.0.0.1"
+port = 8080

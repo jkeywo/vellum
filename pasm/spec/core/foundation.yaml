@@ -1,0 +1,165 @@
+# What this repository is: the shared foundation for the fleet of Rust/Bevy
+# games. Engine crates under the fingerprint charter, the PASM tool, the
+# conventions handbook, the CI the games call, and the templates they copy.
+entities:
+  - system: vellum-foundation
+    core:
+      status: implemented
+      confidence: confirmed
+      title: Vellum, the fleet foundation
+      summary: >
+        One repository holding everything the seven games share: the engine
+        crates (extraction-only, no fingerprint may move), the PASM spec tool
+        consumed as a git subdirectory dependency, the fleet conventions
+        handbook, the reusable CI/Pages workflows, and per-game templates.
+        Games pin a rev; a bump PR touches only manifests and lockfiles.
+      references:
+        - engine-crates
+        - pasm-package
+        - fleet-ci
+        - conventions-handbook
+        - game-templates
+        - consumer-smoke-matrix
+    implementation:
+      status: observed
+      paths:
+        - README.md
+        - .gitattributes
+        - rust-toolchain.toml
+
+  - component: engine-crates
+    core:
+      status: implemented
+      confidence: confirmed
+      title: The engine layer (crates/)
+      summary: >
+        Five crates extracted from project-murmur and rogue-hunter after both
+        games grew the same code independently. A save in those games is a
+        seed plus a command log, so the RNG byte stream and every digest are
+        part of the save format: no change under crates/ may move a
+        fingerprint. New crates land only with a driving consumer.
+      rationale:
+        - >
+          Extraction-only, never speculation: schedulers, content pipelines,
+          generators, and renderers encode the genres and stay in the games.
+    implementation:
+      status: observed
+      paths:
+        - crates/vellum-digest/src/lib.rs
+        - crates/vellum-grid/src/lib.rs
+        - crates/vellum-replay/src/lib.rs
+        - crates/vellum-replay/src/contract.rs
+        - crates/vellum-rng/src/lib.rs
+        - crates/vellum-strings/src/lib.rs
+      symbols:
+        - ShareCodec
+        - Pcg32
+        - Simulation
+        - replay_into
+        - parse_csv
+        - interpolate
+        - first_move_towards
+
+  - component: pasm-package
+    core:
+      status: implemented
+      confidence: confirmed
+      title: The PASM tool (pasm/)
+      summary: >
+        The Python spec-and-scanner package, absorbed from the standalone
+        jkeywo/pasm repository at its extraction rev. Games depend on it as
+        "pasm @ git+https://github.com/jkeywo/vellum@<rev>#subdirectory=pasm".
+        Specs stay with the repositories they describe, including this one.
+    implementation:
+      status: observed
+      paths:
+        - pasm/pyproject.toml
+        - pasm/pasm/cli/main.py
+        - pasm/pasm/core/validation.py
+        - pasm/tests/test_validation.py
+
+  - component: fleet-ci
+    core:
+      status: implemented
+      confidence: confirmed
+      title: Fleet CI (reusable workflow and composite actions)
+      summary: >
+        The opinionated CI every game calls as a ~15-line workflow pinned to a
+        rev of this repository: PASM validate and scan gates, fmt, clippy with
+        denied warnings, tests plus per-game extra checks, a Trunk or
+        wasm-pack web build, and a GitHub Pages deploy gated to main pushes.
+        Composite actions mirror the steps for repos that keep bespoke
+        workflows.
+    implementation:
+      status: observed
+      paths:
+        - .github/workflows/fleet-ci.yml
+        - actions/setup-fleet-rust/action.yml
+        - actions/pasm-validate/action.yml
+        - actions/trunk-pages-build/action.yml
+        - templates/ci.yml
+
+  - component: conventions-handbook
+    core:
+      status: implemented
+      confidence: confirmed
+      title: The conventions handbook (docs/handbook/)
+      summary: >
+        The written fleet conventions: version policy, architecture shape,
+        determinism tiers, testing, content and composition schemes,
+        dependency discipline, web builds, CI usage, local development,
+        hygiene, and the bump workflow. Prose lives here; binding decisions
+        are recorded in this spec's decisions file.
+    implementation:
+      status: observed
+      paths:
+        - docs/handbook/versions.md
+        - docs/handbook/architecture.md
+        - docs/handbook/determinism.md
+        - docs/handbook/testing.md
+        - docs/handbook/composition.md
+        - docs/handbook/content.md
+        - docs/handbook/dependencies.md
+        - docs/handbook/web-build.md
+        - docs/handbook/ci.md
+        - docs/handbook/local-dev.md
+        - docs/handbook/hygiene.md
+        - docs/handbook/bump-workflow.md
+
+  - component: game-templates
+    core:
+      status: implemented
+      confidence: confirmed
+      title: Per-game templates (templates/)
+      summary: >
+        Starting points a game copies and owns: the fleet CI caller, the agent
+        guide, the pinned toolchain, the Trunk shell and config, the tooling
+        pyproject, and the canonical gitignore entries. Copies drift with
+        their games; the templates record the fleet default.
+    implementation:
+      status: observed
+      paths:
+        - templates/ci.yml
+        - templates/AGENTS.md
+        - templates/rust-toolchain.toml
+        - templates/Trunk.toml
+        - templates/index.html
+        - templates/pyproject-tooling.toml
+        - templates/gitignore-snippets.md
+
+  - system: consumer-smoke-matrix
+    core:
+      status: implemented
+      confidence: confirmed
+      title: Consumer smoke matrix
+      summary: >
+        The coordination mechanism between this repository and the games that
+        pin it. CI checks out each consuming game, patches its vellum
+        dependency onto this branch's HEAD, runs the game's determinism
+        suite, and fails if any golden, fixture, or trace file moved. An
+        engine change that would break a game fails here, before the bump PR
+        in that game exists.
+    implementation:
+      status: observed
+      paths:
+        - .github/workflows/ci.yml

@@ -1,0 +1,147 @@
+# Fleet-level decisions: choices that bind all seven games. Game-level
+# decisions stay in each game's own pasm/spec/core/decisions.yaml. Dates are
+# the day the decision was accepted.
+entities:
+  - decision: vellum-is-the-fleet-home
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Vellum is the fleet home (2026-07-25)
+      summary: >
+        Everything the games share lives in this one repository: engine
+        crates, the PASM tool, the handbook, the reusable CI, the templates,
+        and future shared crates. There is no shared engine and there will
+        not be one; the games are different genres and their schedulers,
+        generators, and renderers stay home.
+      rationale:
+        - >
+          Two extractions already proved the pattern: PASM (byte-identical
+          copies grown independently by two games) and the engine crates
+          (the same layer written twice). Consolidating the shared surface
+          into one pinned dependency keeps the games decoupled from each
+          other while stopping every double-maintenance loop at once.
+
+  - decision: pasm-consumed-as-subdirectory
+    core:
+      status: accepted
+      confidence: confirmed
+      title: PASM is consumed from this repository (2026-07-25)
+      summary: >
+        Games depend on the tool as "pasm @
+        git+https://github.com/jkeywo/vellum@<rev>#subdirectory=pasm", pinned
+        to a rev. The standalone jkeywo/pasm repository is deleted once every
+        game has re-pointed and is green; until then it stays untouched so
+        existing pins keep resolving.
+
+  - decision: versions-are-policy-not-campaign
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Version convergence is policy, not a campaign (2026-07-25)
+      summary: >
+        The fleet standard is Bevy 0.19, Rust 1.95.0 pinned by
+        rust-toolchain.toml, and edition 2024 for new crates. A game adopts
+        the standard when it is next actively developed. Nobody runs a
+        Bevy-upgrade PR for its own sake.
+      rationale:
+        - >
+          The games span Bevy 0.16 to 0.19 today and all of them work. An
+          upgrade is real work with real risk, and it earns nothing until the
+          game is being touched anyway.
+
+  - decision: determinism-has-two-tiers
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Fingerprint tiers, sacred and re-blessable (2026-07-25)
+      summary: >
+        For project-murmur and rogue-hunter the RNG byte stream and every
+        digest are the save format: no shared-crate change may move them,
+        enforced by the consumer smoke matrix. Every other game may adopt a
+        shared crate by breaking and deliberately re-blessing its fixtures in
+        the adopting PR, with the re-bless as its own reviewable commit.
+
+  - decision: new-crates-need-a-consumer
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Every new crate lands with a driving consumer (2026-07-25)
+      summary: >
+        A new shared crate merges together with the PR in which a real game
+        adopts it. void-and-thunder is the designated first consumer for the
+        planned testing (corpus), profiling, and data-composition crates: it
+        is small, active, and has all three needs on its roadmap. Sacred
+        games are extraction sources; void-and-thunder validates the API.
+
+  - decision: fleet-ci-is-a-reusable-workflow
+    core:
+      status: accepted
+      confidence: confirmed
+      title: One reusable CI workflow, pinned by rev (2026-07-25)
+      summary: >
+        Games call .github/workflows/fleet-ci.yml from this repository as a
+        thin caller pinned to a rev — the same pin-and-bump discipline as
+        every other vellum dependency. The deploy job lives inside the same
+        workflow, gated to main pushes, so a game carries exactly one caller
+        file. Bespoke-CI repos reuse the composite actions instead.
+
+  - decision: trunk-is-the-web-build
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Trunk is the canonical web build (2026-07-25)
+      summary: >
+        Games build for the web with Trunk and deploy to GitHub Pages under
+        /<repo-name>/. rogue-hunter's no-Bevy web client keeps wasm-pack as a
+        documented exception; project-phoenix-v2 keeps its node pipeline
+        around a Trunk core.
+
+  - decision: uv-everywhere
+    core:
+      status: accepted
+      confidence: confirmed
+      title: uv manages every Python environment (2026-07-25)
+      summary: >
+        Every game's tooling pyproject uses uv with package = false and a
+        committed uv.lock; pip-based setups migrate at adoption time. Local
+        overrides against a vellum checkout use tool.uv.sources and are never
+        committed active.
+
+  - decision: content-formats-are-per-game
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Rhai, RON, and TOML are all sanctioned (2026-07-25)
+      summary: >
+        Content format is a per-game choice; the fleet standardizes the
+        loading patterns instead. Two are sanctioned: compile-time embedding
+        for byte-identical native and wasm builds, and asset-loader loading
+        where hot reload or an editor workflow needs it. The handbook's
+        content chapter carries the details.
+
+  - decision: composition-scheme-is-fleet-adoptable
+    core:
+      status: accepted
+      confidence: confirmed
+      title: The entity/world composition scheme spreads (2026-07-25)
+      summary: >
+        project-phoenix-v2's data model — entity templates, per-instance
+        overrides, layered worlds, a thin selectable-root manifest, and
+        all-or-nothing overlay packs — is documented format-neutrally in the
+        handbook for any game to adopt in its own format. A shared
+        composition crate is built only when void-and-thunder's data editor
+        needs it, with phoenix's implementation as the design source.
+
+  - decision: corpus-and-perf-are-the-next-crates
+    core:
+      status: accepted
+      confidence: confirmed
+      title: Testing and profiling are the next shared crates (2026-07-25)
+      summary: >
+        Every game runs (or has specified) seeded autonomous batches that
+        emit deterministic reports; that batch-and-report shape is the next
+        extraction, sourced from rogue-hunter and project-murmur's converged
+        corpus code. A separate profiling crate follows project-phoenix-v2's
+        cross-runtime measurement contract (its issue 868) and shares the
+        report envelope. Both land with void-and-thunder as first consumer;
+        collectors never enter sim crates.
