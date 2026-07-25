@@ -38,6 +38,7 @@ This is the part that was genuinely the same.
 | `vellum-strings` | the CSV reader and the `{name}` placeholder filler |
 | `vellum-replay` | the `Simulation` trait, the replay driver, and contract checks |
 | `vellum-grid` | deterministic shortest-path search, priced by the caller |
+| `vellum-corpus` | the batch-and-report shape of autonomous testing: case driving under budgets, stall detection, tallies, the report envelope |
 
 ## The constraint everything here is shaped by
 

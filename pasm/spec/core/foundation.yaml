@@ -45,6 +45,7 @@ entities:
     implementation:
       status: observed
       paths:
+        - crates/vellum-corpus/src/lib.rs
         - crates/vellum-digest/src/lib.rs
         - crates/vellum-grid/src/lib.rs
         - crates/vellum-replay/src/lib.rs
@@ -59,6 +60,9 @@ entities:
         - parse_csv
         - interpolate
         - first_move_towards
+        - drive
+        - StallGuard
+        - Tally
 
   - component: pasm-package
     core:
