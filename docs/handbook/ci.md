@@ -29,6 +29,16 @@ its checks fit `extra-check-commands` and `pasm-scenario-glob`) keeps its
 own workflow files but builds the shared steps from the composite actions
 under `actions/`, so setup, PASM gating, and Pages assembly cannot drift.
 
+**Migrating a hand-rolled rust-cache step:** `setup-fleet-rust` exposes no
+`shared-key`, and `cache-workspaces` is not a substitute — that is rust-cache's
+`workspaces`, which takes paths, so a label like `native` points the cache at a
+directory that does not exist and quietly caches nothing rather than failing.
+If each key had exactly one job, drop it: rust-cache's default key is already
+per-job, so the caches stay separate (phoenix's native/wasm split turned out to
+be this). If two or more jobs deliberately share one cache, the action cannot
+express that yet — keep a hand-rolled step for those jobs, or add the input
+here and bump the consumers. Nobody has needed the latter yet.
+
 Keep any in-repo command documentation (AGENTS.md "Common Commands") in sync
 with what CI actually runs — trusting a stale list is how a batch lands
 green locally and red in CI.

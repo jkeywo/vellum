@@ -5,6 +5,26 @@ description: >
   keep bespoke workflows; fleet-ci.yml inlines the same steps (a reusable
   workflow cannot reference its own repo's local actions).
 
+  NO shared-key INPUT, DELIBERATELY — READ THIS BEFORE ADOPTING.
+  A repo migrating a hand-rolled `Swatinem/rust-cache` step here often has
+  `shared-key: native` / `shared-key: wasm` on two jobs. There is no input for
+  it, and `cache-workspaces` is NOT the equivalent — it maps to rust-cache's
+  `workspaces`, which takes paths.
+
+  Whether that matters depends on what shared-key was doing:
+
+  - One job per key (the common case, and what phoenix had). Drop it.
+    rust-cache's default key already includes the job, so the caches stay
+    separate exactly as before. Nothing to do.
+  - Two or more jobs deliberately SHARING one cache. That is the case this
+    action cannot express. Either keep a hand-rolled rust-cache step for those
+    jobs, or add a shared-key input here and bump the consumers.
+
+  Nobody has needed the second case yet, which is why the input does not exist;
+  it is a five-line addition when someone does. The trap is assuming
+  cache-workspaces stands in for it — that silently caches nothing useful
+  rather than failing.
+
 inputs:
   toolchain:
     description: Toolchain to install; repos with rust-toolchain.toml win at cargo time.
@@ -16,7 +36,12 @@ inputs:
     description: Extra compilation targets (e.g. wasm32-unknown-unknown).
     default: ""
   cache-workspaces:
-    description: Workspaces argument passed to Swatinem/rust-cache.
+    # This is rust-cache's `workspaces`, which takes PATHS ("." or
+    # "subdir -> target"), not a cache label. Passing a name like "native" or
+    # "wasm" here points the cache at a directory that does not exist. If you
+    # are reaching for this to separate two jobs' caches, you want shared-key —
+    # see the note below.
+    description: Workspace paths passed to Swatinem/rust-cache (e.g. ". -> target").
     default: ""
 
 runs:
