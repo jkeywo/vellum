@@ -43,6 +43,9 @@ pub enum ComposeError {
     /// An overlay named an authored path that does not exist. The overlay
     /// was not applied — not even the paths that did exist.
     OverlayPathUnknown(String),
+    /// A diff was asked to express the *removal* of a field, which a shallow
+    /// override cannot say.
+    DiffRemoval(String),
     /// The composed value did not deserialize into the requested type.
     Extract(ron::error::Error),
     /// A source string did not parse as RON.
@@ -58,6 +61,12 @@ impl std::fmt::Display for ComposeError {
                 write!(
                     f,
                     "overlay names unknown path '{path}'; nothing was applied"
+                )
+            }
+            ComposeError::DiffRemoval(key) => {
+                write!(
+                    f,
+                    "diff cannot express removing {key}: a shallow override has no                      way to say \"delete this field\""
                 )
             }
             ComposeError::Extract(error) => write!(f, "composed value did not extract: {error}"),
@@ -165,6 +174,44 @@ pub fn apply(base: &Value, overrides: &Value) -> Result<Value, ComposeError> {
         merged.insert(key.clone(), value.clone());
     }
     Ok(Value::Map(merged))
+}
+
+/// The inverse of [`apply`]: the shallow override that takes `base` to
+/// `merged`.
+///
+/// This is the editor's save path: a panel edits a fully-materialised value,
+/// and what belongs in the authored file is only what *differs* from the
+/// template — "a class only needs to say how it differs" survives being
+/// edited. Identical values diff to a unit ("no override"), so
+/// `apply(base, diff(base, merged)?) == merged` holds for every pair of maps
+/// with the same key set.
+///
+/// A key present in `base` but absent from `merged` is unrepresentable as a
+/// shallow override (there is no "remove this field" in the scheme), and is
+/// reported rather than silently dropped.
+pub fn diff(base: &Value, merged: &Value) -> Result<Value, ComposeError> {
+    let Value::Map(base_map) = base else {
+        return Err(ComposeError::NotAMap("diff base"));
+    };
+    let Value::Map(merged_map) = merged else {
+        return Err(ComposeError::NotAMap("diff target"));
+    };
+    for key in base_map.keys() {
+        if merged_map.get(key).is_none() {
+            return Err(ComposeError::DiffRemoval(format!("{key:?}")));
+        }
+    }
+    let mut overrides = ron::Map::new();
+    for (key, value) in merged_map.iter() {
+        if base_map.get(key) != Some(value) {
+            overrides.insert(key.clone(), value.clone());
+        }
+    }
+    if overrides.is_empty() {
+        Ok(Value::Unit)
+    } else {
+        Ok(Value::Map(overrides))
+    }
 }
 
 /// Stack layers in declared order: the first layer is the base, each later
@@ -292,6 +339,35 @@ mod tests {
         good.insert("data/ships.ron", parse("( hull: 1.0 )").unwrap());
         good.apply_to(&mut content).unwrap();
         assert_eq!(content["data/ships.ron"], parse("( hull: 1.0 )").unwrap());
+    }
+
+    #[test]
+    fn diff_is_the_inverse_of_apply() {
+        let base = template();
+        let edited = apply(&base, &parse("( hull: 40.0 )").unwrap()).unwrap();
+        let overrides = diff(&base, &edited).unwrap();
+        assert_eq!(overrides, parse("( hull: 40.0 )").unwrap());
+        assert_eq!(
+            apply(&base, &overrides).unwrap(),
+            edited,
+            "apply(base, diff(base, merged)) must reproduce merged"
+        );
+    }
+
+    #[test]
+    fn an_unedited_value_diffs_to_no_override() {
+        let overrides = diff(&template(), &template()).unwrap();
+        assert_eq!(overrides, Value::Unit, "identical values need no override");
+        assert_eq!(apply(&template(), &overrides).unwrap(), template());
+    }
+
+    #[test]
+    fn a_removed_field_is_reported_not_dropped() {
+        let smaller = parse("( hull: 100.0 )").unwrap();
+        assert!(matches!(
+            diff(&template(), &smaller),
+            Err(ComposeError::DiffRemoval(_))
+        ));
     }
 
     #[test]
