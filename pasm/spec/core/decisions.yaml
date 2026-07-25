@@ -145,3 +145,48 @@ entities:
         cross-runtime measurement contract (its issue 868) and shares the
         report envelope. Both land with void-and-thunder as first consumer;
         collectors never enter sim crates.
+
+  - decision: rng-unification-breaks-saves
+    core:
+      status: accepted
+      confidence: confirmed
+      title: The RNG converges on one entry point and one type, breaking saves once (2026-07-25)
+      summary: >-
+        The four historical entry points — two seeding policies and two
+        bounded draws, fossils of two games that wrote the same generator
+        independently — converge on Pcg32::seeded (the canonical PCG warm-up
+        over a SplitMix64-mixed seed, with selectable streams), Pcg32::below
+        (Lemire), the shared helpers, and the shared Pcg32 type stored
+        directly in saved state. Both roguelikes deliberately invalidate
+        their existing saves, replays, and share codes, re-blessing every
+        fixture in their own migration PRs; share-code and replay version
+        markers bump so old codes are refused rather than misread.
+      rationale:
+        - >-
+          The awkwardness was real and paid daily: every new consumer had to
+          choose between four entry points whose differences exist only as
+          history, and neither game could store the shared type. Breaking
+          pre-release saves once buys a single save-format RNG for the whole
+          fleet forever.
+        - >-
+          The migration is two-phase so the consumer smoke matrix stays green
+          throughout: the unified API lands beside the deprecated legacy
+          points; each game migrates and re-blesses in its own PR; the legacy
+          points are removed once both are off them.
+
+  - decision: content-pipeline-is-in-scope
+    core:
+      status: accepted
+      confidence: confirmed
+      title: The composition scheme is a shared content pipeline (2026-07-25)
+      summary: >-
+        The original charter excluded content pipelines as convention-only.
+        Reversed: the entity/world composition scheme — templates,
+        per-instance overrides, layered worlds, overlay packs, and model
+        sidecar files (project-phoenix-v2's *.model.toml rig descriptions,
+        wanted in void-and-thunder) — becomes a shared pipeline
+        (vellum-compose) integrated across the games over time, built when
+        void-and-thunder's data editor needs it. How far one unified
+        pipeline can go is answered by adoption, not speculation.
+      references:
+        - corpus-and-perf-are-the-next-crates

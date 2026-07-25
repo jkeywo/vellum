@@ -1,4 +1,4 @@
-//! PCG32, with room for more than one house style.
+//! PCG32 — the fleet's save-format RNG, with one house style.
 //!
 //! Both games hand-rolled the same generator rather than depend on the `rand`
 //! ecosystem, for the same reason: in a game whose save file is its command
@@ -6,30 +6,34 @@
 //! improved a distribution would silently invalidate every recorded run, and
 //! it would do it quietly.
 //!
-//! # Why this crate has four entry points and not one
+//! # One entry point
 //!
-//! Read the two implementations side by side and they look like the same code.
-//! They are not, and the differences are exactly the kind that survive a
-//! careless merge:
+//! This crate once carried four entry points — two seeding policies and two
+//! bounded draws, the fossils of two games that wrote the same generator
+//! independently — because merging them would have invalidated every saved
+//! run in both. The fleet then decided to pay exactly that cost once, on
+//! purpose (decision `rng-unification-breaks-saves` in vellum's spec), and
+//! converge:
 //!
-//! | | canonical | splitmix-fixed |
-//! |---|---|---|
-//! | seeding | PCG's two-step warm-up | SplitMix64, no warm-up |
-//! | increment | `(stream << 1) \| 1` | a fixed constant |
-//! | streams | several, selectable | one |
+//! - **Construction**: [`Pcg32::seeded`] — the canonical PCG warm-up over a
+//!   SplitMix64-mixed seed. The mix is what lets a low-entropy seed a player
+//!   typed in (`42`, `7`, `0`) start from well-mixed state; the canonical
+//!   warm-up and shifted increment are what give independent, selectable
+//!   streams.
+//! - **Bounded draw**: [`Pcg32::below`] — Lemire's multiply-and-shift, the
+//!   stronger of the two (no division on the accept path).
+//! - **The type itself**: games store [`Pcg32`] in their saved state rather
+//!   than private layouts around borrowed arithmetic; both serialize as
+//!   `{ state, inc }`.
+//! - **Derived draws**: the helpers both games duplicated —
+//!   [`Pcg32::range_inclusive`], [`Pcg32::chance`], [`Pcg32::pick_index`],
+//!   [`Pcg32::shuffle`] — live here, defined over the one `below`.
 //!
-//! And the bounded draw, which is the trap. Both compute
-//! `let threshold = bound.wrapping_neg() % bound;` — which is why they read
-//! alike — and then diverge completely: one multiplies and returns the high
-//! word ([`Pcg32::below_lemire`]), the other takes a remainder
-//! ([`Pcg32::below_modulo`]). Both are unbiased. Neither substitutes for the
-//! other, and swapping them changes every value a game draws.
+//! The legacy entry points remain, deprecated, until both roguelikes finish
+//! their migrations and re-bless their fixtures; then they go.
 //!
-//! So both policies are here, named for what they do, with no default. There
-//! is deliberately no `Rng` trait: two implementations and no third caller
-//! does not need an abstraction, and a trait object would let a game pick up
-//! the wrong policy by accident, which is the one failure this crate exists to
-//! prevent.
+//! There is deliberately still no `Rng` trait: one implementation does not
+//! need an abstraction.
 
 use serde::{Deserialize, Serialize};
 
@@ -47,12 +51,25 @@ pub struct Pcg32 {
 }
 
 impl Pcg32 {
+    /// The fleet construction: the canonical PCG warm-up over a
+    /// SplitMix64-mixed seed, with a selectable stream.
+    ///
+    /// This is the one blessed entry point. The SplitMix pass spreads a
+    /// low-entropy typed seed before it becomes state; the canonical warm-up
+    /// keeps streams independent. It deliberately does *not* reproduce the
+    /// published PCG vectors (the mix is in front) — [`Pcg32::canonical`]
+    /// exists for that.
+    pub fn seeded(seed: u64, stream: u64) -> Self {
+        Self::canonical(split_mix_64(seed), stream)
+    }
+
     /// The canonical PCG construction: zero the state, step, add the seed,
     /// step again, with the stream selector shifted into the increment.
     ///
     /// This is what the reference implementation does, so a generator built
     /// this way reproduces the published test vectors — see
-    /// `canonical_matches_the_published_reference_vector`.
+    /// `canonical_matches_the_published_reference_vector`. Kept public as the
+    /// reference-vector primitive; game code uses [`Pcg32::seeded`].
     pub fn canonical(seed: u64, stream: u64) -> Self {
         let inc = (stream << 1) | 1;
         let mut rng = Self { state: 0, inc };
@@ -68,6 +85,8 @@ impl Pcg32 {
     /// The SplitMix pass is what lets a low-entropy seed a player typed in —
     /// `42`, `7`, `0` — start from well-mixed state instead of walking
     /// through a predictable neighbourhood of the sequence.
+    #[deprecated(note = "the fleet converged on Pcg32::seeded; this stays only until \
+                rogue-hunter's migration re-blesses its fixtures")]
     pub fn splitmix_fixed_inc(seed: u64) -> Self {
         Self {
             state: split_mix_64(seed),
@@ -75,17 +94,13 @@ impl Pcg32 {
         }
     }
 
-    /// Rebuild a generator from raw state, for a consumer that stores its own.
+    /// Rebuild a generator from raw state, for tools and tests that store
+    /// parts.
     ///
-    /// This exists because both games serialise their generator *inside* saved
-    /// state, in shapes that predate this crate and differ from each other and
-    /// from [`Pcg32`]: one keeps a single field, the other two. Adopting this
-    /// struct wholesale would rewrite both save formats, so the games keep
-    /// their own types and borrow only the arithmetic — construct, draw, hand
-    /// the state back.
-    ///
-    /// New code should prefer [`Pcg32::canonical`] or
-    /// [`Pcg32::splitmix_fixed_inc`] and store this type directly.
+    /// This was the seam the games borrowed arithmetic through while their
+    /// save formats predated this crate. The fleet's RNG unification retires
+    /// that pattern: games store [`Pcg32`] directly and construct with
+    /// [`Pcg32::seeded`].
     pub const fn from_parts(state: u64, inc: u64) -> Self {
         Self { state, inc }
     }
@@ -115,14 +130,13 @@ impl Pcg32 {
         xorshifted.rotate_right(rot)
     }
 
-    /// Uniform in `0..bound`, by Lemire's multiply-and-shift.
+    /// Uniform in `0..bound` — the fleet's one bounded draw, by Lemire's
+    /// multiply-and-shift.
     ///
     /// Draws a word, multiplies by the bound, and returns the high half,
-    /// rejecting the short interval that would bias the result. Not
-    /// interchangeable with [`Self::below_modulo`]: for the same generator
-    /// state the two return different values.
-    pub fn below_lemire(&mut self, bound: u32) -> u32 {
-        debug_assert!(bound > 0, "below_lemire requires a non-zero bound");
+    /// rejecting the short interval that would bias the result.
+    pub fn below(&mut self, bound: u32) -> u32 {
+        debug_assert!(bound > 0, "below requires a non-zero bound");
         let threshold = bound.wrapping_neg() % bound;
         loop {
             let value = self.next_u32();
@@ -133,11 +147,22 @@ impl Pcg32 {
         }
     }
 
+    /// Uniform in `0..bound`, by Lemire's multiply-and-shift.
+    #[deprecated(note = "renamed to Pcg32::below — the fleet's one bounded draw")]
+    pub fn below_lemire(&mut self, bound: u32) -> u32 {
+        self.below(bound)
+    }
+
     /// Uniform in `0..bound`, by rejection then remainder.
     ///
     /// Rejects the short leading interval that would make low values slightly
     /// more likely, then takes the remainder. Not interchangeable with
-    /// [`Self::below_lemire`].
+    /// [`Self::below`]: for the same generator state the two return
+    /// different values.
+    #[deprecated(
+        note = "the fleet converged on Pcg32::below (Lemire); this stays only \
+                until rogue-hunter's migration re-blesses its fixtures"
+    )]
     pub fn below_modulo(&mut self, bound: u32) -> u32 {
         debug_assert!(bound > 0, "below_modulo requires a non-zero bound");
         let threshold = bound.wrapping_neg() % bound;
@@ -146,6 +171,31 @@ impl Pcg32 {
             if value >= threshold {
                 return value % bound;
             }
+        }
+    }
+
+    /// Uniform in the inclusive range `lo..=hi`.
+    pub fn range_inclusive(&mut self, lo: u32, hi: u32) -> u32 {
+        debug_assert!(lo <= hi);
+        lo + self.below(hi - lo + 1)
+    }
+
+    /// True with probability `numerator / denominator`.
+    pub fn chance(&mut self, numerator: u32, denominator: u32) -> bool {
+        self.below(denominator) < numerator
+    }
+
+    /// An index into a collection of `len` elements.
+    pub fn pick_index(&mut self, len: usize) -> usize {
+        debug_assert!(len > 0);
+        self.below(len as u32) as usize
+    }
+
+    /// Fisher-Yates shuffle with deterministic order.
+    pub fn shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (1..items.len()).rev() {
+            let j = self.below(i as u32 + 1) as usize;
+            items.swap(i, j);
         }
     }
 }
@@ -185,6 +235,7 @@ mod tests {
     /// The sequence rogue-hunter's saved runs were recorded against. Pinned
     /// here as well as in that game, so an engine change fails in both places.
     #[test]
+    #[allow(deprecated)]
     fn splitmix_fixed_inc_matches_the_pinned_sequence() {
         let mut rng = Pcg32::splitmix_fixed_inc(0);
         let first: Vec<u32> = (0..4).map(|_| rng.next_u32()).collect();
@@ -195,6 +246,7 @@ mod tests {
     /// produced the same stream, one game's saves would be readable as the
     /// other's and the distinction this crate is built around would be a lie.
     #[test]
+    #[allow(deprecated)]
     fn the_two_constructions_are_different_generators() {
         let mut canonical = Pcg32::canonical(0, 1);
         let mut splitmix = Pcg32::splitmix_fixed_inc(0);
@@ -207,13 +259,14 @@ mod tests {
     /// function. This test exists so that nobody "simplifies" the pair into
     /// one and silently rewrites every saved run in both games.
     #[test]
+    #[allow(deprecated)]
     fn the_two_bounded_draws_disagree() {
         let mut differed = 0;
         for bound in [3u32, 6, 100, 1000] {
             let mut lemire = Pcg32::splitmix_fixed_inc(0);
             let mut modulo = Pcg32::splitmix_fixed_inc(0);
             for _ in 0..256 {
-                let a = lemire.below_lemire(bound);
+                let a = lemire.below(bound);
                 let b = modulo.below_modulo(bound);
                 assert!(a < bound && b < bound, "a draw escaped its bound");
                 if a != b {
@@ -247,10 +300,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn bounded_draws_stay_in_range() {
         let mut rng = Pcg32::splitmix_fixed_inc(7);
         for _ in 0..2000 {
-            assert!(rng.below_lemire(5) < 5);
+            assert!(rng.below(5) < 5);
             assert!(rng.below_modulo(5) < 5);
         }
     }
@@ -259,11 +313,12 @@ mod tests {
     /// so it is where a rejection loop written the wrong way round would spin
     /// or bias. Both must still terminate and stay in range.
     #[test]
+    #[allow(deprecated)]
     fn the_worst_case_bound_terminates() {
         let mut rng = Pcg32::splitmix_fixed_inc(1);
         let bound = 0x8000_0001u32;
         for _ in 0..1000 {
-            assert!(rng.below_lemire(bound) < bound);
+            assert!(rng.below(bound) < bound);
             assert!(rng.below_modulo(bound) < bound);
         }
     }
@@ -272,6 +327,51 @@ mod tests {
     fn split_mix_64_is_pinned() {
         assert_eq!(split_mix_64(0), 16294208416658607535);
         assert_ne!(split_mix_64(0), split_mix_64(1));
+    }
+
+    /// The fleet construction is pinned: these constants are what every
+    /// migrated save format is recorded against. Moving them is moving the
+    /// fleet's save format, and there is no quiet way to do that.
+    #[test]
+    fn seeded_is_pinned() {
+        let mut rng = Pcg32::seeded(0, 0);
+        let first: Vec<u32> = (0..4).map(|_| rng.next_u32()).collect();
+        assert_eq!(first, [3234325189, 1963755818, 1465678534, 3792411884]);
+
+        let mut typed = Pcg32::seeded(42, 1);
+        let typed_first: Vec<u32> = (0..4).map(|_| typed.next_u32()).collect();
+        assert_eq!(
+            typed_first,
+            [4176028549, 3950285441, 2197104919, 1103863609]
+        );
+    }
+
+    #[test]
+    fn seeded_streams_are_independent() {
+        let mut one = Pcg32::seeded(42, 1);
+        let mut two = Pcg32::seeded(42, 2);
+        let a: Vec<u32> = (0..8).map(|_| one.next_u32()).collect();
+        let b: Vec<u32> = (0..8).map(|_| two.next_u32()).collect();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn derived_draws_stay_in_range_and_are_deterministic() {
+        let mut a = Pcg32::seeded(9, 1);
+        let mut b = Pcg32::seeded(9, 1);
+        for _ in 0..500 {
+            let v = a.range_inclusive(2, 4);
+            assert!((2..=4).contains(&v));
+            assert_eq!(v, b.range_inclusive(2, 4));
+        }
+        let mut items_a: Vec<u32> = (0..20).collect();
+        let mut items_b: Vec<u32> = (0..20).collect();
+        a.shuffle(&mut items_a);
+        b.shuffle(&mut items_b);
+        assert_eq!(items_a, items_b);
+        assert!(a.pick_index(7) < 7);
+        let hits = (0..1000).filter(|_| a.chance(1, 4)).count();
+        assert!((150..350).contains(&hits), "chance(1,4) hit {hits}/1000");
     }
 
     /// The interop seam has to be lossless, because a consumer that stores its
@@ -294,6 +394,7 @@ mod tests {
     /// A consumer storing only the state half must be able to reconstruct the
     /// single-stream generator exactly.
     #[test]
+    #[allow(deprecated)]
     fn a_state_only_consumer_can_rebuild_the_fixed_stream() {
         let mut original = Pcg32::splitmix_fixed_inc(0);
         let mut stored = original.clone().into_parts().0;

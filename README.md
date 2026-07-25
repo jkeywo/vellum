@@ -49,20 +49,24 @@ from the simulation state. A change that would be a harmless refactor anywhere
 else silently invalidates every run a player has recorded.
 
 So the rule this repository was built under: *no change here may move a
-fingerprint.* Both games carry pinned fixtures — RNG traces, golden runs with
-exact share codes, byte snapshots of every command variant — and every one of
-them was byte-identical before and after each extraction. A stage that wanted
-to change a fixture had stopped being an extraction.
+fingerprint* — with one amendment the fleet later made explicit: fingerprints
+may move by **coordinated decision**, never by accident. Both games carry
+pinned fixtures — RNG traces, golden runs with exact share codes, byte
+snapshots of every command variant — and the consumer smoke job below is what
+tells the two cases apart: an accidental move fails CI; a decided one arrives
+as a per-game migration PR that re-blesses the fixtures it invalidates, on
+purpose, in the open.
 
-That rule is also why several things look more awkward than they need to:
+The first such decision is the **RNG unification**
+(`rng-unification-breaks-saves` in `pasm/spec/`): the four historical entry
+points — two seeding policies and two bounded draws, fossils of two games that
+wrote the same generator independently — converge on one construction
+(`Pcg32::seeded`), one draw (`Pcg32::below`), and the shared `Pcg32` type
+stored directly in both games' saved state. The legacy entry points stay,
+deprecated, until both migrations have re-blessed; then they go.
 
-- **The RNG has four entry points, not one.** The two games' bounded draws
-  compute the same rejection threshold and then diverge completely — one
-  multiplies and takes the high word, the other takes a remainder. Both are
-  unbiased. Merging them would have rewritten every saved run in both games.
-- **The RNG types are not shared, only the arithmetic.** Both games serialise
-  their generator *inside* saved state, in different shapes: one field against
-  two. `from_parts`/`into_parts` is the seam.
+Still shaped by the rule:
+
 - **The grid search takes indices, not positions.** One game's `Direction` is a
   postcard variant index inside recorded commands; the other's `Pos` sits in a
   world whose RON text is the mission fingerprint. Those types stay home.
@@ -76,11 +80,16 @@ difference between a stealth game where the tile behind an actor decides
 everything and an investigation game with a travel clock. The schedulers encode
 the genres. `vellum-replay` shares the *shape* around them and nothing more.
 
-**Content pipelines.** ~100K of schema and cross-reference validation between
-the two, sharing a convention rather than a mechanism.
-
 **Generators, planners, renderers.** Both generate-and-prove-then-retry, and
 they share no data structure while doing it.
+
+**Not excluded any more: the content pipeline.** The original charter kept
+content pipelines out ("a convention, not a mechanism"); the fleet has since
+decided otherwise (`content-pipeline-is-in-scope` in `pasm/spec/`). The
+entity/world composition scheme — templates, per-instance overrides, layered
+worlds, overlay packs, model sidecar files — is becoming a shared pipeline
+(`vellum-compose`), built when void-and-thunder's data editor needs it and
+integrated across the fleet over time. See `docs/handbook/composition.md`.
 
 **rogue-hunter's `bfs_step`.** It stops on a tile *adjacent* to its goal and
 exits when a node is pushed rather than popped, so a Dijkstra with the same
