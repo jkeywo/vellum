@@ -1,299 +1,110 @@
-//! The authored-text substrate: a CSV reader and a placeholder filler.
+//! The fleet's localisation pipeline: authored text, looked up by id, and
+//! audited so a rename is safe.
 //!
-//! Both games keep every player-facing line in one CSV and refer to it by id,
-//! so that structure files carry numbers and shape while prose stays in one
-//! translatable place. Both therefore needed the same two unglamorous things,
-//! and both wrote them.
+//! Four games grew most of this separately — a CSV of `id, context, text`,
+//! `{name}` slots, `[brackets]` marking prose no human has approved, and a
+//! check that every id used exists and every row is reached. One of them
+//! wrote the check in JavaScript. This is that pipeline, once.
 //!
-//! # Why this is the safe crate to share
+//! # Why this crate can move freely
 //!
-//! Neither game's save format can be affected by anything here. rogue-hunter
-//! excludes the string table from its content fingerprint and marks rendered
-//! log text `#[serde(skip)]` precisely so that copy edits and translations
-//! cannot move a digest; murmur's fingerprint is over `World`, which holds
-//! ids rather than prose. Changing how text is parsed or filled therefore
-//! cannot invalidate a saved run — which makes this the one part of the
-//! authored-content pipeline that can move without a determinism argument.
+//! Nothing here can touch a save format. rogue-hunter excludes its string
+//! table from the content fingerprint and marks rendered log text
+//! `#[serde(skip)]` precisely so copy edits and translations cannot move a
+//! digest; murmur's fingerprint is over `World`, which holds ids rather than
+//! prose. That is what makes text the one part of the content pipeline that
+//! can change without a determinism argument — and it is a property each
+//! game must keep, not one this crate can enforce.
 //!
-//! What is *not* here: the tables themselves. Each game's lookup type has its
-//! own missing-id sentinel, its own lifetimes, and its own opinion about
-//! whether a missing id should be loud in a release build. Those are visible
-//! to players and to authors, so they stay where they are authored.
+//! # The shape
+//!
+//! - [`Table`] — one locale's rows, parsed from CSV, looked up by id.
+//! - [`Locale`] and [`Category`] — plural categories and the rule that picks
+//!   one. English ships; a locale that needs `Few` adds a selector and rows.
+//! - [`audit`] — the check, across `.rs`, `.js` and `.html`, with the
+//!   game supplying ids it builds at runtime.
+//! - [`Table::to_json`] — what a page fetches, so **Rust is the only thing
+//!   in the fleet that parses the CSV**.
+//!
+//! # Call shapes
+//!
+//! Fixed across the fleet, because the audit reads them:
+//!
+//! | language | lookup |
+//! |---|---|
+//! | Rust | `tr!("id")`, `trf!("id", k = v)` |
+//! | JavaScript | `t("id")` |
+//! | HTML | `data-i18n="id"` |
+//!
+//! The macros live in the game (they close over its table); what belongs
+//! here is the shape they take, so one audit can serve all three languages.
 
-use std::fmt;
+mod audit;
+mod csv;
+mod interpolate;
+mod plural;
+mod table;
 
-/// Where a CSV file stopped making sense.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CsvError {
-    /// 1-based, so it matches what a text editor shows.
-    pub line: usize,
-    pub message: &'static str,
+pub use audit::{audit, AuditInput, Finding, Marker, Report, FLEET};
+pub use csv::{parse_csv, CsvError};
+pub use interpolate::{interpolate, placeholders_in};
+pub use plural::{Category, Locale};
+pub use table::{is_id, PlaceholderDrift, Row, Table, TableError, HEADER, MISSING};
+
+use std::collections::BTreeSet;
+use std::sync::{Mutex, OnceLock};
+
+/// Route missed lookups into the game's own logger.
+///
+/// A missing id panics in a debug build, so this is about release: the
+/// marker on screen only helps someone who is looking at the screen, and the
+/// log line is what is left afterwards. Games have their own logging
+/// discipline — Bevy's `warn!`, phoenix's categorised `plog!` — so this crate
+/// takes a hook rather than a logging dependency and an opinion.
+///
+/// Without a hook, misses go to stderr, **once per id**: a lookup in a render
+/// loop would otherwise write sixty lines a second about one typo.
+pub fn on_missing(hook: fn(&str)) {
+    let _ = MISSING_HOOK.set(hook);
 }
 
-impl fmt::Display for CsvError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "line {}: {}", self.line, self.message)
-    }
-}
+static MISSING_HOOK: OnceLock<fn(&str)> = OnceLock::new();
+static REPORTED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
 
-impl std::error::Error for CsvError {}
-
-/// Split CSV text into records, resolving quoting.
-///
-/// A minimal RFC 4180 reader, hand-rolled rather than pulled from a crate: the
-/// format is entirely under the authors' control, both games ship to wasm and
-/// care about payload size, and a state machine this small can be tested
-/// exhaustively against the cases that actually bite — quoted commas, doubled
-/// quotes, apostrophes, and the CRLF that text editors leave behind.
-///
-/// Malformed input is an error rather than a best guess. A silently mangled
-/// row becomes garbled text in front of a player, at which point the CSV is
-/// the last place anyone looks.
-pub fn parse_csv(source: &str) -> Result<Vec<Vec<String>>, CsvError> {
-    let mut records = Vec::new();
-    let mut record = Vec::new();
-    let mut field = String::new();
-    let mut quoted = false;
-    // Whether the current field began with a quote, so stray text after the
-    // closing quote is rejected rather than silently joined on.
-    let mut closed = false;
-    let mut line = 1usize;
-    let mut chars = source.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if quoted {
-            match ch {
-                '"' => {
-                    if chars.peek() == Some(&'"') {
-                        chars.next();
-                        field.push('"');
-                    } else {
-                        quoted = false;
-                        closed = true;
-                    }
-                }
-                '\n' => {
-                    line += 1;
-                    field.push('\n');
-                }
-                _ => field.push(ch),
-            }
-            continue;
-        }
-
-        match ch {
-            '"' if field.is_empty() && !closed => quoted = true,
-            '"' => {
-                return Err(CsvError {
-                    line,
-                    message: "unexpected quote inside a bare field",
-                });
-            }
-            ',' => {
-                record.push(std::mem::take(&mut field));
-                closed = false;
-            }
-            '\r' if chars.peek() == Some(&'\n') => {}
-            '\n' | '\r' => {
-                line += 1;
-                record.push(std::mem::take(&mut field));
-                records.push(std::mem::take(&mut record));
-                closed = false;
-            }
-            _ if closed => {
-                return Err(CsvError {
-                    line,
-                    message: "text after a closing quote",
-                });
-            }
-            _ => field.push(ch),
-        }
+pub(crate) fn report_missing(id: &str) {
+    if let Some(hook) = MISSING_HOOK.get() {
+        hook(id);
+        return;
     }
-
-    if quoted {
-        return Err(CsvError {
-            line,
-            message: "unterminated quoted field",
-        });
+    let seen = REPORTED.get_or_init(|| Mutex::new(BTreeSet::new()));
+    let Ok(mut seen) = seen.lock() else {
+        return; // a poisoned lock is not worth a second panic
+    };
+    if seen.insert(id.to_owned()) {
+        eprintln!("missing string: `{id}`");
     }
-    // A trailing newline leaves nothing pending; anything else is a last row.
-    if !field.is_empty() || !record.is_empty() {
-        record.push(field);
-        records.push(record);
-    }
-    Ok(records)
-}
-
-/// Replace each `{name}` slot in `template` with its argument.
-///
-/// Two decisions worth keeping:
-///
-/// **Unmatched slots stay visible.** A `{room}` left on screen points at the
-/// bug; an empty gap hides it. In debug builds it also trips an assertion, so
-/// it is caught before anyone sees it.
-///
-/// **Substituted values are never rescanned.** This is a single left-to-right
-/// pass, so a value that happens to contain `{name}` is inserted literally
-/// rather than being filled in by a later argument. Implementing this as
-/// repeated `str::replace` — one pass per argument, which is the obvious way
-/// and was how one of the two games did it — lets authored data inject into
-/// its own template: a villain called `{hunter}` would come back out as the
-/// hunter's name.
-pub fn interpolate(template: &str, args: &[(&str, &str)]) -> String {
-    if !template.contains('{') {
-        return template.to_string();
-    }
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(open) = rest.find('{') {
-        out.push_str(&rest[..open]);
-        let after = &rest[open + 1..];
-        match after.find('}') {
-            Some(close) => {
-                let name = &after[..close];
-                match args.iter().find(|(key, _)| *key == name) {
-                    Some((_, value)) => out.push_str(value),
-                    None => {
-                        debug_assert!(false, "no argument for placeholder {{{name}}}");
-                        out.push('{');
-                        out.push_str(name);
-                        out.push('}');
-                    }
-                }
-                rest = &after[close + 1..];
-            }
-            // An unbalanced brace keeps its trailing text verbatim. Both games
-            // reject these when the table is parsed, so reaching here means the
-            // template came from somewhere else.
-            None => {
-                out.push('{');
-                out.push_str(after);
-                return out;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn rows(source: &str) -> Vec<Vec<String>> {
-        parse_csv(source).expect("parses")
-    }
-
+    /// The whole pipeline on one small table: parse, look up, fill, pluralise,
+    /// and emit what a page reads.
     #[test]
-    fn plain_fields_split_on_commas() {
-        assert_eq!(rows("a,b,c"), vec![vec!["a", "b", "c"]]);
-    }
+    fn a_table_serves_rust_and_a_page_from_one_parse() {
+        let csv = "id,context,text\n\
+                   hud.wave,Wave counter label,WAVE\n\
+                   hud.enemies.one,Enemy count,1 enemy\n\
+                   hud.enemies.other,Enemy count,{n} enemies\n";
+        let table = Table::parse(Locale::ENGLISH, csv).expect("parses");
 
-    #[test]
-    fn a_quoted_field_may_contain_a_comma() {
-        assert_eq!(
-            rows(r#"id,"one, two",z"#),
-            vec![vec!["id", "one, two", "z"]]
-        );
-    }
+        assert_eq!(table.text("hud.wave"), "WAVE");
+        assert_eq!(table.plural("hud.enemies", 1, &[]), "1 enemy");
+        assert_eq!(table.plural("hud.enemies", 3, &[("n", "3")]), "3 enemies");
 
-    #[test]
-    fn a_doubled_quote_is_one_literal_quote() {
-        assert_eq!(
-            rows(r#"id,"she said ""no""","#),
-            vec![vec!["id", r#"she said "no""#, ""]]
-        );
-    }
-
-    #[test]
-    fn apostrophes_need_no_escaping() {
-        assert_eq!(
-            rows("id,the wolf's den"),
-            vec![vec!["id", "the wolf's den"]]
-        );
-    }
-
-    #[test]
-    fn crlf_and_lf_both_end_a_record() {
-        assert_eq!(
-            rows("a,b\r\nc,d\ne,f"),
-            vec![vec!["a", "b"], vec!["c", "d"], vec!["e", "f"]]
-        );
-    }
-
-    #[test]
-    fn a_trailing_newline_does_not_add_an_empty_record() {
-        assert_eq!(rows("a,b\r\n"), vec![vec!["a", "b"]]);
-    }
-
-    #[test]
-    fn a_quoted_field_may_span_lines() {
-        assert_eq!(
-            rows("id,\"one\ntwo\"\nnext,x"),
-            vec![vec!["id", "one\ntwo"], vec!["next", "x"]]
-        );
-    }
-
-    #[test]
-    fn an_empty_source_yields_no_records() {
-        assert_eq!(parse_csv("").expect("parses"), Vec::<Vec<String>>::new());
-    }
-
-    #[test]
-    fn an_unterminated_quote_is_an_error() {
-        assert!(parse_csv("id,\"never closed").is_err());
-    }
-
-    #[test]
-    fn text_after_a_closing_quote_is_an_error() {
-        assert!(parse_csv(r#"id,"closed"trailing"#).is_err());
-    }
-
-    #[test]
-    fn errors_point_at_the_line_to_fix() {
-        let error = parse_csv("a,b\nc,\"unterminated").expect_err("fails");
-        assert_eq!(error.line, 2);
-    }
-
-    #[test]
-    fn placeholders_are_filled() {
-        assert_eq!(
-            interpolate(
-                "the {who} in the {where}",
-                &[("who", "wolf"), ("where", "den")]
-            ),
-            "the wolf in the den"
-        );
-    }
-
-    #[test]
-    fn a_template_without_braces_is_returned_as_is() {
-        assert_eq!(interpolate("plain text", &[]), "plain text");
-    }
-
-    /// The reason this is a single pass rather than one `str::replace` per
-    /// argument: authored data must not be able to inject into its template.
-    #[test]
-    fn a_substituted_value_is_not_rescanned() {
-        let filled = interpolate(
-            "{villain} stalks {hunter}",
-            &[("villain", "{hunter}"), ("hunter", "Reyes")],
-        );
-        assert_eq!(
-            filled, "{hunter} stalks Reyes",
-            "a value containing a placeholder was filled in by a later argument"
-        );
-    }
-
-    #[test]
-    fn an_unmatched_slot_stays_visible() {
-        // Loud in release; the debug assertion covers development.
-        #[cfg(not(debug_assertions))]
-        assert_eq!(interpolate("a {missing} slot", &[]), "a {missing} slot");
-    }
-
-    #[test]
-    fn an_unbalanced_brace_keeps_its_tail() {
-        assert_eq!(interpolate("open {brace", &[]), "open {brace");
+        let json = table.to_json();
+        assert!(json.contains(r#""hud.wave": "WAVE""#));
+        assert!(json.contains(r#""hud.enemies.other": "{n} enemies""#));
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "vellum-strings"
-description = "CSV string tables and placeholder filling for authored game text."
+description = "The fleet's localisation pipeline: authored text tables, plural categories, the three-language audit, and the JSON a page fetches."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
