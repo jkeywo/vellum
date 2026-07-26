@@ -223,9 +223,20 @@ understood as part of the *command* rather than something a driver schedules:
 - `type Command = LoggedCommand { tick, command }` — which is what a stamped
   command already is.
 - `apply` = advance to that tick, then execute.
-- `needs_continuation` / `continue_step` drive the tail to `final_tick`.
-- The sim **samples its own hash ledger** inside `continue_step`, so periodic
-  hashes need no driver callback.
+- The sim **samples its own hash ledger** while advancing, so periodic hashes
+  need no driver callback.
+- The tail to `final_tick` is driven by a `Sampling::advance_to` on the saves
+  crate, called once after the log is exhausted.
+
+**Correction, found while building wave 2.** This section first said
+`needs_continuation` / `continue_step` would drive the tail. They will not:
+`replay_into` pumps continuations *before every command*, not only after the
+last one, so a sim reporting "not yet at the end tick" plays the entire run
+out before its first command arrives — every command then lands at the final
+tick, and the digests disagree for a reason that looks nothing like the cause.
+That hook means "a multi-turn action is mid-resolution" and still does. The
+tail needs its own method; it doubles as the advance-to-tick half of `apply`,
+so a game implements one thing rather than two.
 
 This *deletes* necessary-work's bespoke replay loop rather than complicating
 anything, and it makes `Run` the same shape for every game that has one.
