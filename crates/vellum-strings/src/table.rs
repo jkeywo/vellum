@@ -52,6 +52,8 @@ pub enum TableError {
     BadId { line: usize, id: String },
     DuplicateId { line: usize, id: String },
     WrongFieldCount { line: usize, found: usize },
+    EmptyText { line: usize, id: String },
+    UnclosedPlaceholder { line: usize, id: String },
 }
 
 impl fmt::Display for TableError {
@@ -70,6 +72,12 @@ impl fmt::Display for TableError {
             TableError::DuplicateId { line, id } => write!(f, "line {line}: duplicate id `{id}`"),
             TableError::WrongFieldCount { line, found } => {
                 write!(f, "line {line}: expected 3 fields, found {found}")
+            }
+            TableError::EmptyText { line, id } => {
+                write!(f, "line {line}: `{id}` has no text")
+            }
+            TableError::UnclosedPlaceholder { line, id } => {
+                write!(f, "line {line}: `{id}` has an unclosed {{placeholder")
             }
         }
     }
@@ -125,6 +133,14 @@ impl Table {
         for (index, record) in records.enumerate() {
             // Header consumed above, and humans count from one.
             let line = index + 2;
+            // Blank spacers and `#` section markers carry no row. A table
+            // large enough to need them — murmur's runs to six hundred rows —
+            // is unreadable in a text editor without them, and they cost
+            // nothing to skip.
+            let first = record.first().map(|f| f.trim()).unwrap_or("");
+            if first.is_empty() || first.starts_with('#') {
+                continue;
+            }
             if record.len() != 3 {
                 errors.push(TableError::WrongFieldCount {
                     line,
@@ -133,12 +149,28 @@ impl Table {
                 continue;
             }
             let [id, context, text]: [String; 3] = record.try_into().expect("length checked");
+            // A hand-edited table picks up stray spaces around an id and a
+            // context; neither is content. The text is left exactly as
+            // written — its leading space may be deliberate.
+            let id = id.trim().to_owned();
+            let context = context.trim().to_owned();
             if !is_id(&id) {
                 errors.push(TableError::BadId { line, id });
                 continue;
             }
             if rows.contains_key(&id) {
                 errors.push(TableError::DuplicateId { line, id });
+                continue;
+            }
+            // Two authoring mistakes murmur learned to refuse: a truncated
+            // edit that leaves the text empty, and a `{` with no `}`, which
+            // reaches the screen as literal noise rather than a value.
+            if text.trim().is_empty() {
+                errors.push(TableError::EmptyText { line, id });
+                continue;
+            }
+            if text.matches('{').count() != text.matches('}').count() {
+                errors.push(TableError::UnclosedPlaceholder { line, id });
                 continue;
             }
             rows.insert(id, Row { context, text });
@@ -235,6 +267,28 @@ impl Table {
     /// Every id and row, in order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Row)> {
         self.rows.iter().map(|(id, row)| (id.as_str(), row))
+    }
+
+    /// Every id and row whose id starts with `prefix`, in id order.
+    ///
+    /// This is how an authored *pool* reaches a generator — murmur's person
+    /// names, districts and briefing reasons are rows, not a RON list, so the
+    /// table is the list. Two consequences follow, and a game reading a pool
+    /// owns both:
+    ///
+    /// - **The order is the fingerprint.** Ids are ordered as bytes, so a
+    ///   pool meant to be indexed must zero-pad (`names.first.01`). Unpadded,
+    ///   adding a tenth entry reorders the first nine and every existing seed
+    ///   generates something different.
+    /// - **These ids are reached without a literal**, so the audit cannot see
+    ///   them by scanning. Feed the ids from here into
+    ///   [`AuditInput::derived`](crate::AuditInput::derived) and the orphan
+    ///   half stays exact: the same call that reads a pool declares it.
+    pub fn with_prefix<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = (&'a str, &'a Row)> {
+        self.rows
+            .range(prefix.to_string()..)
+            .take_while(move |(id, _)| id.starts_with(prefix))
+            .map(|(id, row)| (id.as_str(), row))
     }
 
     pub fn len(&self) -> usize {
@@ -377,6 +431,78 @@ mod tests {
 
     fn table(body: &str) -> Table {
         Table::parse(Locale::ENGLISH, &format!("{HEAD}{body}")).expect("table parses")
+    }
+
+    /// A table large enough to need sections gets them; neither a spacer nor
+    /// a `#` marker is a row.
+    #[test]
+    fn blank_and_commented_rows_carry_nothing() {
+        let csv = concat!(
+            "id,context,text
+",
+            "
+",
+            "# --- the hub ---,,
+",
+            "hub.enter,Entering the hub,[You step inside.]
+",
+        );
+        let table = Table::parse(Locale::ENGLISH, csv).expect("parses");
+        assert_eq!(table.len(), 1);
+        assert_eq!(table.text("hub.enter"), "[You step inside.]");
+    }
+
+    #[test]
+    fn a_truncated_edit_and_an_unclosed_slot_are_both_refused() {
+        let csv = concat!(
+            "id,context,text
+",
+            "a.empty,Note,
+",
+            "a.unclosed,Note,[found in {room]
+",
+        );
+        let errors = Table::parse(Locale::ENGLISH, csv).expect_err("refuses both");
+        assert!(matches!(errors[0], TableError::EmptyText { .. }));
+        assert!(matches!(errors[1], TableError::UnclosedPlaceholder { .. }));
+    }
+
+    /// The pool contract: id order, and nothing from a neighbouring prefix.
+    /// `names.last` must not leak into `names.first`, and the zero-padding is
+    /// what keeps the order stable as the pool grows.
+    #[test]
+    fn a_pool_reads_in_id_order_and_stops_at_its_prefix() {
+        let csv = concat!(
+            "id,context,text
+",
+            "names.first.01,Given name,Ada
+",
+            "names.first.02,Given name,Bram
+",
+            "names.first.10,Given name,Chen
+",
+            "names.last.01,Family name,Okonkwo
+",
+        );
+        let table = Table::parse(Locale::ENGLISH, csv).expect("parses");
+        let pool: Vec<&str> = table
+            .with_prefix("names.first.")
+            .map(|(_, row)| row.text.as_str())
+            .collect();
+        assert_eq!(pool, ["Ada", "Bram", "Chen"]);
+        let ids: Vec<&str> = table.with_prefix("names.first.").map(|(id, _)| id).collect();
+        assert_eq!(ids, ["names.first.01", "names.first.02", "names.first.10"]);
+    }
+
+    /// A hand-edited row with stray spaces is the same row.
+    #[test]
+    fn an_id_is_trimmed_before_it_is_judged() {
+        let csv = concat!("id,context,text
+", "  hub.enter , Note ,[In.]
+");
+        let table = Table::parse(Locale::ENGLISH, csv).expect("parses");
+        assert_eq!(table.text("hub.enter"), "[In.]");
+        assert_eq!(table.row("hub.enter").expect("present").context, "Note");
     }
 
     #[test]
