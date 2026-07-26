@@ -1,0 +1,34 @@
+[package]
+name = "vellum-save"
+description = "The fleet's persistence contract: durable Progress that migrates, replayable Runs that refuse, and one version gate that names what moved."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The Run half. Pulls vellum-replay, because a run is only meaningful against
+# a simulation that can replay it. A game that only keeps totals — v&t keeps
+# nothing else — never compiles any of it.
+run = ["dep:vellum-replay"]
+# `<data_dir>/<game>/<slot>.ron`. Native only; the web target has no
+# filesystem worth the name.
+backend-fs = []
+# `localStorage["<game>:<slot>"]`. wasm32 only.
+backend-web = ["dep:web-sys"]
+
+[dependencies]
+# Unconditional: a save that cannot serialize is not a save.
+serde = { workspace = true }
+ron = { workspace = true }
+# The self-hash on a stored record, and the digest a run compares.
+vellum-digest = { path = "../vellum-digest" }
+vellum-replay = { path = "../vellum-replay", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Storage", "Window"], optional = true }

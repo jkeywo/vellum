@@ -9,6 +9,7 @@ members = [
   "crates/vellum-perf",
   "crates/vellum-replay",
   "crates/vellum-rng",
+  "crates/vellum-save",
   "crates/vellum-script",
   "crates/vellum-strings",
 ]
