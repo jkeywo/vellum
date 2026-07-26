@@ -30,11 +30,14 @@
 //!
 //! Fixed across the fleet, because the audit reads them:
 //!
-//! | language | lookup |
-//! |---|---|
-//! | Rust | `tr!("id")`, `trf!("id", k = v)` |
-//! | JavaScript | `t("id")` |
-//! | HTML | `data-i18n="id"` |
+//! | language | lookup | with arguments |
+//! |---|---|---|
+//! | Rust | `tr!("id")` | `trf!("id", k = v)` |
+//! | JavaScript | `t("id")` | `tf("id", { k: v })` |
+//! | HTML | `data-i18n="id"` | — |
+//!
+//! JavaScript may live inline in a `.html` page as easily as in a `.js`
+//! file, so both lookups are scanned in both.
 //!
 //! The macros live in the game (they close over its table); what belongs
 //! here is the shape they take, so one audit can serve all three languages.

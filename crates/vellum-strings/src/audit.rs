@@ -63,6 +63,12 @@ pub const FLEET: &[Marker] = &[
         extensions: &["js", "mjs", "html"],
         call: "t(",
     },
+    // The interpolating form, symmetric with Rust's trf!. Without it a row
+    // reached only with arguments reads as an orphan.
+    Marker {
+        extensions: &["js", "mjs", "html"],
+        call: "tf(",
+    },
     Marker {
         extensions: &["html"],
         call: "data-i18n=",
@@ -346,10 +352,7 @@ mod tests {
             .iter()
             .filter(|m| m.extensions.contains(&"html"))
             .collect();
-        let found: Vec<String> = markers
-            .iter()
-            .flat_map(|m| extract(html, m.call))
-            .collect();
+        let found: Vec<String> = markers.iter().flat_map(|m| extract(html, m.call)).collect();
         assert!(found.contains(&"hud.wave".to_owned()));
         assert!(found.contains(&"title.prompt.keyboard".to_owned()));
     }
