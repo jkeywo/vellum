@@ -16,6 +16,13 @@ Conventions the caller carries: `permissions` granting `pages: write` +
 workflow-level `concurrency` (a called workflow cannot set it), and push
 runs restricted to `main` so PR runs are the only other trigger.
 
+A workspace with a **wasm-only crate** lints in two passes: the host
+workspace excluding that crate, then the crate alone on
+`wasm32-unknown-unknown`. Both go in `clippy-command` (it takes one command
+per line) with `rust-targets: wasm32-unknown-unknown` so the target is
+installed — the lint belongs to the rust job, not the wasm one, because it
+is a lint and not a build.
+
 Fleet defaults, overridable per game through inputs: ubuntu runner (Bevy
 native tests need `apt-packages: libasound2-dev libudev-dev`), toolchain
 1.95.0 when the repo has no `rust-toolchain.toml`, `pasm-scan: gate`

@@ -28,6 +28,8 @@ jobs:
       # runner: ubuntu-latest
       # rust-toolchain: "1.95.0"        # repos with rust-toolchain.toml win anyway
       # apt-packages: ""                # Bevy native tests: "libasound2-dev libudev-dev"
+      # rust-targets: ""                # e.g. wasm32-unknown-unknown, when clippy lints a wasm-only crate
+      # clippy-command: cargo clippy --workspace --all-targets -- -D warnings
       # test-command: cargo test --workspace
       # extra-check-commands: ""        # one command per line
       # pasm-spec-path: pasm/spec
@@ -36,6 +38,7 @@ jobs:
       # wasm-mode: trunk                # trunk | wasm-pack | none
       # trunk-working-directory: "."    # where Trunk.toml lives
       # wasm-pack-crate: ""             # wasm-pack mode only
+      # wasm-pack-out-dir: ""           # wasm-pack --out-dir, relative to the crate
       # pages-dir: ""                   # defaults to <trunk dir>/dist
       # public-url: ""                  # defaults to /<repo name>/
       # deploy: true                    # Pages deploy on main pushes
