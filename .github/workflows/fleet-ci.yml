@@ -35,6 +35,22 @@ on:
           typically need "libasound2-dev libudev-dev").
         type: string
         default: ""
+      rust-targets:
+        description: >
+          Extra compilation targets for the rust job. A workspace whose
+          clippy pass covers a wasm-only crate needs
+          "wasm32-unknown-unknown" here — the lint runs in the rust job, not
+          the wasm one.
+        type: string
+        default: ""
+      clippy-command:
+        description: >
+          The lint pass, one command per line. The default lints the whole
+          workspace for the host; a workspace with a wasm-only crate lints
+          it separately, on its own target, because a crate that never
+          compiles for the host cannot be linted with the rest.
+        type: string
+        default: cargo clippy --workspace --all-targets -- -D warnings
       test-command:
         description: Test invocation for the rust job.
         type: string
@@ -67,6 +83,13 @@ on:
         default: "."
       wasm-pack-crate:
         description: Crate directory for wasm-mode wasm-pack.
+        type: string
+        default: ""
+      wasm-pack-out-dir:
+        description: >
+          wasm-pack --out-dir, relative to the crate directory. Set when the
+          generated bindings belong beside a hand-written page shell rather
+          than in the crate's own pkg/.
         type: string
         default: ""
       pages-dir:
@@ -129,11 +152,12 @@ jobs:
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: rustfmt, clippy
+          targets: ${{ inputs.rust-targets }}
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: ${{ inputs.clippy-command }}
       - name: Tests
         run: ${{ inputs.test-command }}
       - name: Extra checks
@@ -176,7 +200,12 @@ jobs:
           tool: wasm-pack
       - name: wasm-pack build
         if: inputs.wasm-mode == 'wasm-pack'
-        run: wasm-pack build ${{ inputs.wasm-pack-crate }} --target web --release
+        run: |
+          out=""
+          if [ -n "${{ inputs.wasm-pack-out-dir }}" ]; then
+            out="--out-dir ${{ inputs.wasm-pack-out-dir }}"
+          fi
+          wasm-pack build ${{ inputs.wasm-pack-crate }} --target web --release $out
       - name: Resolve artifact directory
         id: artifact
         run: |
