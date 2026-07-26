@@ -55,8 +55,12 @@ pub const FLEET: &[Marker] = &[
         extensions: &["rs"],
         call: "trf!(",
     },
+    // `.html` as well as `.js`: a page may hold its script inline, and the
+    // first game to adopt this pipeline kept its whole HUD — markup and
+    // behaviour — in one file. A marker that only looked at `.js` found the
+    // attributes and none of the lookups.
     Marker {
-        extensions: &["js", "mjs"],
+        extensions: &["js", "mjs", "html"],
         call: "t(",
     },
     Marker {
@@ -326,6 +330,28 @@ mod tests {
     fn html_attributes_are_read() {
         let html = r#"<span data-i18n="hud.enemies">ENEMIES</span>"#;
         assert_eq!(extract(html, "data-i18n="), vec!["hud.enemies".to_owned()]);
+    }
+
+    /// A page with inline script holds both kinds of lookup, and the markers
+    /// must find both — the gap the first adopting game walked straight into.
+    #[test]
+    fn a_page_with_inline_script_yields_both_kinds() {
+        let html = r#"
+            <span data-i18n="hud.wave">WAVE</span>
+            <script>
+              el.prompt.textContent = t("title.prompt.keyboard");
+            </script>
+        "#;
+        let markers: Vec<&Marker> = FLEET
+            .iter()
+            .filter(|m| m.extensions.contains(&"html"))
+            .collect();
+        let found: Vec<String> = markers
+            .iter()
+            .flat_map(|m| extract(html, m.call))
+            .collect();
+        assert!(found.contains(&"hud.wave".to_owned()));
+        assert!(found.contains(&"title.prompt.keyboard".to_owned()));
     }
 
     fn fixture_dir() -> PathBuf {
