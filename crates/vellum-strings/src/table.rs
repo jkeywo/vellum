@@ -490,16 +490,22 @@ mod tests {
             .map(|(_, row)| row.text.as_str())
             .collect();
         assert_eq!(pool, ["Ada", "Bram", "Chen"]);
-        let ids: Vec<&str> = table.with_prefix("names.first.").map(|(id, _)| id).collect();
+        let ids: Vec<&str> = table
+            .with_prefix("names.first.")
+            .map(|(id, _)| id)
+            .collect();
         assert_eq!(ids, ["names.first.01", "names.first.02", "names.first.10"]);
     }
 
     /// A hand-edited row with stray spaces is the same row.
     #[test]
     fn an_id_is_trimmed_before_it_is_judged() {
-        let csv = concat!("id,context,text
-", "  hub.enter , Note ,[In.]
-");
+        let csv = concat!(
+            "id,context,text
+",
+            "  hub.enter , Note ,[In.]
+"
+        );
         let table = Table::parse(Locale::ENGLISH, csv).expect("parses");
         assert_eq!(table.text("hub.enter"), "[In.]");
         assert_eq!(table.row("hub.enter").expect("present").context, "Note");

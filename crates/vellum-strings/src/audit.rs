@@ -184,6 +184,14 @@ pub fn audit(table: &Table, input: AuditInput<'_>) -> Report {
 
     let mut used: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut files_scanned = 0usize;
+    // Every source, concatenated, for the orphan half only. The two halves
+    // deliberately ask different questions. "Is this id defined?" is asked of
+    // the call shapes, because a typo inside `tr!` must be a build failure.
+    // "Does anything reach this row?" is asked of the whole text, because an
+    // id can legitimately sit in a `const` table with no call around it —
+    // murmur's keymap holds a hundred that way — and a false orphan would
+    // push a game to delete a row it still needs.
+    let mut corpus = String::new();
     for path in &files {
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
@@ -201,6 +209,7 @@ pub fn audit(table: &Table, input: AuditInput<'_>) -> Report {
                 used.entry(id).or_insert_with(|| path.clone());
             }
         }
+        corpus.push_str(&text);
     }
     for id in &input.derived {
         used.entry(id.clone()).or_insert_with(|| "<derived>".into());
@@ -217,7 +226,7 @@ pub fn audit(table: &Table, input: AuditInput<'_>) -> Report {
         }
     }
     for id in &defined {
-        if !used.contains_key(*id) {
+        if !used.contains_key(*id) && !corpus.contains(&format!("\"{id}\"")) {
             findings.push(Finding::Orphan {
                 id: (*id).to_owned(),
             });
@@ -386,6 +395,32 @@ mod tests {
         assert!(report.findings.contains(&Finding::Orphan {
             id: "defined.not.used".into(),
         }));
+        let _ = std::fs::remove_file(&source);
+    }
+
+    /// An id in a `const` table is reached by whatever reads that table, not
+    /// by a call the scanner can see. It is not an orphan — but a bare
+    /// literal is also not a lookup, so it must not make the undefined half
+    /// fire either. Only a call shape claims "this id must exist".
+    #[test]
+    fn a_bare_literal_answers_the_orphan_half_but_not_the_other() {
+        let dir = fixture_dir();
+        let source = dir.join("keymap_case.rs");
+        std::fs::write(
+            &source,
+            r#"const KEYS: &[(&str, &str)] = &[("c", "keymap.carry.label")];
+               const GONE: &str = "keymap.ghost.label";"#,
+        )
+        .unwrap();
+
+        let table = Table::from_rows(Locale::ENGLISH, &[("keymap.carry.label", "Carry")]);
+        let report = audit(&table, AuditInput::new(&[&source]));
+
+        assert!(
+            report.ok(),
+            "
+{report}"
+        );
         let _ = std::fs::remove_file(&source);
     }
 
