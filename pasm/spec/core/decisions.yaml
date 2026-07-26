@@ -29,9 +29,11 @@ entities:
       summary: >
         Games depend on the tool as "pasm @
         git+https://github.com/jkeywo/vellum@<rev>#subdirectory=pasm", pinned
-        to a rev. The standalone jkeywo/pasm repository is deleted once every
-        game has re-pointed and is green; until then it stays untouched so
-        existing pins keep resolving.
+        to a rev. The standalone jkeywo/pasm repository was kept untouched
+        until every game had re-pointed and gone green, so existing pins kept
+        resolving; that condition was met and the repository has been deleted.
+        This directory is now the only copy of the tool, and any link to the
+        old repository is a dead one.
 
   - decision: versions-are-policy-not-campaign
     core:
@@ -173,6 +175,84 @@ entities:
           throughout: the unified API lands beside the deprecated legacy
           points; each game migrates and re-blesses in its own PR; the legacy
           points are removed once both are off them.
+
+  - decision: saves-are-progress-and-run
+    core:
+      status: accepted
+      confidence: confirmed
+      title: A save is Progress or a Run, never one envelope (2026-07-26)
+      summary: >-
+        vellum-save carries two unrelated concepts under one crate: Progress
+        (durable unlocks, totals, settings) migrates through an ordered vN to
+        vN+1 chain, and Run (seed, command log, divergence ledger) has no
+        migration hook at all, because a run replayed under new rules is a
+        different run. One Versions gate covers both — format and rules set by
+        hand, content a computed digest — and a refusal names which of the
+        three moved. Store is text and RON rather than bytes, so a save stays
+        openable by the person diagnosing it; backends (backend-fs,
+        backend-web) and the Run half itself sit behind features so a
+        Progress-only game compiles no replay engine.
+      rationale:
+        - >-
+          void-and-thunder forced the split into the open: its input is
+          continuous analog at 64 Hz, so a command log for it would be an
+          input recording rather than a log. It can never be a replay game and
+          it still wants totals to survive a refresh. One unified envelope
+          would have given it three permanently empty fields.
+        - >-
+          Content is a digest rather than a number somebody remembers to bump,
+          because two games in this fleet learned that the same way.
+        - >-
+          Integrity, corruption, and divergence are three separate questions —
+          the ShareCodec CRC, a record self-hash, and the Run ledger — and one
+          field asked to do all three ends up being asked whether a simulation
+          changed.
+      references:
+        - determinism-has-two-tiers
+        - new-crates-need-a-consumer
+
+  - decision: phoenix-adopts-the-engine-crates
+    core:
+      status: accepted
+      confidence: confirmed
+      title: project-phoenix-v2 re-points four planned PRDs onto vellum (2026-07-26)
+      summary: >-
+        Phoenix had ten issues planned before this repository grew its crates,
+        and they overlapped. Resolved per issue. Its performance PRD (868)
+        adopts vellum-perf, which was written to that PRD's shape, and keeps
+        only the collectors, baseline files, asset budgets, and reporting the
+        crate excludes by charter. Its determinism PRD (849) adopts
+        vellum-replay, vellum-digest, and vellum-rng, including the RNG
+        unification. Its snapshot PRD (848) and that PRD's children co-author
+        vellum-save rather than building a phoenix envelope, with phoenix as
+        the world-snapshot consumer. Its composable-templates PRD (869) stays
+        in phoenix. Perf, replay, rng, and digest are adoptable at the rev
+        phoenix already pins for pasm; vellum-save is not landed yet.
+      rationale:
+        - >-
+          Phoenix is re-blessable tier, so the RNG migration re-blesses its
+          determinism fixtures in the adopting PR rather than needing a
+          coordinated fleet move. The payoff is concrete: Pcg32 serializes and
+          rand's SmallRng does not, so RNG state can enter the snapshot at all.
+        - >-
+          The snapshot is the one place phoenix could not simply consume:
+          Run carries seed, log and ledger with no field for captured world
+          state, because neither Wave 2 consumer exercises one. Phoenix is that
+          missing consumer, and a private phoenix envelope would have been the
+          fleet's second save format before the first one shipped.
+        - >-
+          869 stays home on merge semantics, not on format: phoenix merges deep
+          over toml::Value with by-name and by-id array reconciliation, and
+          vellum-compose is shallow over ron::Value and refuses deep merge by
+          charter. Phoenix remains the design source for the composition
+          scheme, not a consumer of the crate.
+      references:
+        - saves-are-progress-and-run
+        - corpus-and-perf-are-the-next-crates
+        - composition-scheme-is-fleet-adoptable
+        - determinism-has-two-tiers
+        - rng-unification-breaks-saves
+        - new-crates-need-a-consumer
 
   - decision: content-pipeline-is-in-scope
     core:

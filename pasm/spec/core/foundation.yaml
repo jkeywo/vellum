@@ -33,15 +33,23 @@ entities:
       confidence: confirmed
       title: The engine layer (crates/)
       summary: >
-        Five crates extracted from project-murmur and rogue-hunter after both
-        games grew the same code independently. A save in those games is a
-        seed plus a command log, so the RNG byte stream and every digest are
-        part of the save format: no change under crates/ may move a
-        fingerprint. New crates land only with a driving consumer.
+        Ten crates. The first five were extracted from project-murmur and
+        rogue-hunter after both games grew the same code independently; the
+        rest arrived with the consumers that needed them. A save in the two
+        sacred games is a seed plus a command log, so the RNG byte stream and
+        every digest are part of the save format: no change under crates/ may
+        move a fingerprint. New crates land only with a driving consumer.
       rationale:
         - >
-          Extraction-only, never speculation: schedulers, content pipelines,
-          generators, and renderers encode the genres and stay in the games.
+          Extraction over speculation: schedulers, generators, and renderers
+          encode the genres and stay in the games. Content pipelines were
+          originally excluded on the same grounds and are no longer — see the
+          content-pipeline-is-in-scope decision.
+        - >
+          Consumers, not guesses, decide the shape: void-and-thunder drove
+          corpus, perf, compose, and editor; last-aeon drove script;
+          project-phoenix-v2 adopts perf, replay, rng, and digest for its
+          measurement and determinism work.
     implementation:
       status: observed
       paths:
@@ -56,6 +64,11 @@ entities:
         - crates/vellum-rng/src/lib.rs
         - crates/vellum-script/src/lib.rs
         - crates/vellum-strings/src/lib.rs
+        - crates/vellum-strings/src/audit.rs
+        - crates/vellum-strings/src/csv.rs
+        - crates/vellum-strings/src/interpolate.rs
+        - crates/vellum-strings/src/plural.rs
+        - crates/vellum-strings/src/table.rs
       symbols:
         - ShareCodec
         - Pcg32
@@ -83,7 +96,8 @@ entities:
       title: The PASM tool (pasm/)
       summary: >
         The Python spec-and-scanner package, absorbed from the standalone
-        jkeywo/pasm repository at its extraction rev. Games depend on it as
+        jkeywo/pasm repository at its extraction rev; that repository has since
+        been deleted, so this directory is the only copy. Games depend on it as
         "pasm @ git+https://github.com/jkeywo/vellum@<rev>#subdirectory=pasm".
         Specs stay with the repositories they describe, including this one.
     implementation:

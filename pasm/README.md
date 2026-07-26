@@ -15,8 +15,9 @@ same tooling independently and ended up with byte-identical copies of it — eve
 `.py` under `architecture/`, `cli/`, `core/`, `domains/`, `implementation/`,
 `integration/`, `migration/` and `scanners/` matched exactly. It was extracted
 once so it stopped being maintained twice, and now lives here in the fleet's
-shared repository, absorbed from the standalone
-[jkeywo/pasm](https://github.com/jkeywo/pasm) at its extraction rev.
+shared repository, absorbed from the standalone `jkeywo/pasm` repository at its
+extraction rev. That repository has since been deleted — this directory is the
+only copy, and its history begins at the absorption commit.
 
 ## What stays with each game
 

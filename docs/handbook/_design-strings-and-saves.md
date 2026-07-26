@@ -139,8 +139,27 @@ crate and stops a row being readable in a spreadsheet cell.
 | `Progress` | durable state: unlocks, totals, settings | v&t, the-usual, murmur |
 | `Run` | a replayable run: seed + log + digest | rogue-hunter, murmur, last-aeon, necessary-work |
 
-A game opts into either, or both. A snapshot is an optional **field of Run**,
-not a third concept.
+A game opts into either, or both.
+
+**On snapshots — corrected 2026-07-26.** This design said a snapshot is an
+optional **field of Run**, not a third concept. The implementation did not build
+it: `Run<C>` is `{ versions, scenario, seed, commands, ledger }`, with nowhere to
+put captured world state. That was not an oversight so much as an absence of
+demand — neither Wave 2 consumer below exercises a snapshot, so the field had
+nothing to answer to.
+
+project-phoenix-v2 is that missing consumer. Its authoritative world snapshot
+(its issues #848 and #862–#867) must serve persistence, campaign continuity,
+native hosting, and P2P transfer from one artifact, and it is neither a
+`Progress` (not player totals, does not migrate) nor a `Run` as built (no seed
+plus log). Two constraints it brings:
+
+- the snapshot must be storable **with no command log** — phoenix's snapshot
+  lands before its deterministic-lockstep work, so its first artifact has
+  captured state and an empty log and ledger;
+- whether that is a field on `Run` or the third concept this section rejected is
+  now an open question rather than a settled one, and it is answered by phoenix's
+  adoption rather than in advance.
 
 v&t forces the distinction: its input is continuous analog at 64 Hz, so a
 "command log" for v&t would be an input recording, not a log. It can never be
@@ -261,6 +280,12 @@ Each wave lands a crate with real driving consumers, per
 2. **v&t adopts `Progress`** — totals, unlocks, settings; native + web.
 3. **necessary-work adopts `Run`** and aligns onto `vellum-replay`, revising
    its `vellum-adoption` decision.
+4. **phoenix adopts the snapshot** — the third consumer, added 2026-07-26 and
+   the reason §1's correction exists. It settles where captured world state
+   lives, and it is the only consumer that exercises a stored snapshot at all.
+   Its tree is `#862` (the bounded tracer) → `#863`/`#864` (dynamic and
+   scenario state) → `#865`/`#866` (slots on `Store`, file export through the
+   same record), with `#867`'s campaign projection staying in phoenix.
 
 ## Known gaps, stated rather than hidden
 
@@ -268,6 +293,15 @@ Each wave lands a crate with real driving consumers, per
   (`Plunder { ships_boarded }` and `Encounter { wave, .. }`, both reset per
   run), so it can never test `Run`. necessary-work is the `Run` driver for
   exactly this reason.
+- **Nothing in the original Wave 2 exercised a snapshot**, which is why the
+  field went unbuilt — see §1. Phoenix closes that gap, and until its adoption
+  lands, "a snapshot is a field of `Run`" is a design intention with no code and
+  no test behind it. Stated here rather than left to be discovered.
+- **`Store` is text, so a snapshot is text.** RON keeps a save diagnosable by
+  hand, and that is the right trade for five games storing small records. A game
+  whose authoritative state is large enough to want a dense binary encoding
+  would be the case that reopens the choice; phoenix's world snapshot is the
+  first candidate and has not yet been measured.
 - **The JSON emit adds a build-order constraint** to any game whose page is
   assembled outside cargo (phoenix's `build-client.mjs`). Real cost, accepted
   in exchange for one parser.
