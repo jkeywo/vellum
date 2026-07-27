@@ -81,6 +81,45 @@ def test_forbidden_dependency_is_reported() -> None:
     assert finding.spec_entities[0].value == "mixed-dependency"
 
 
+def test_unknown_dependency_policy_is_reported() -> None:
+    result = validate_spec_root(FIXTURES / "invalid")
+    finding = next(f for f in result.findings if f.id.startswith("invalid-dependency-policy"))
+    assert finding.rule == "architecture.dependency-policy-vocabulary"
+    assert finding.severity.value == "error"
+
+
+def test_indirect_forbidden_dependency_is_reported_with_path() -> None:
+    result = validate_spec_root(FIXTURES / "invalid")
+    finding = next(
+        f for f in result.findings if f.id.startswith("indirect-forbidden-dependency")
+    )
+    assert finding.rule == "architecture.indirect-forbidden-dependency"
+    assert finding.severity.value == "warning"
+    assert finding.evidence[0] == "indirect-source -> indirect-middle -> indirect-sink"
+
+
+def test_direct_forbidden_dependency_is_not_reported_twice() -> None:
+    result = validate_spec_root(FIXTURES / "invalid")
+    indirect = [
+        f
+        for f in result.findings
+        if f.rule == "architecture.indirect-forbidden-dependency"
+        and f.spec_entities[0].value == "mixed-dependency"
+    ]
+    assert indirect == []
+
+
+def test_dependency_cycle_is_reported_once_per_component() -> None:
+    result = validate_spec_root(FIXTURES / "invalid")
+    findings = [f for f in result.findings if f.rule == "architecture.dependency-cycle"]
+    assert [f.id for f in findings] == ["dependency-cycle:cycle-alpha"]
+    assert [entity.value for entity in findings[0].spec_entities] == [
+        "cycle-alpha",
+        "cycle-beta",
+    ]
+    assert findings[0].evidence[0] == "cycle-alpha -> cycle-beta -> cycle-alpha"
+
+
 def test_non_authoritative_owner_is_reported() -> None:
     result = validate_spec_root(FIXTURES / "invalid")
     finding = next(f for f in result.findings if f.id.startswith("non-authoritative-owner"))
@@ -176,6 +215,22 @@ def test_observed_repository_dependency_drift_is_reported() -> None:
     assert "undeclared-observed-dependency:alpha:gamma" in finding_ids
     assert "missing-observed-dependency:web-shell:web-app" not in finding_ids
     assert "missing-observed-dependency:web-app:web-helper" not in finding_ids
+
+
+def test_closed_dependency_policy_makes_undeclared_observed_edge_an_error() -> None:
+    result = validate_spec_root(
+        REPOSITORY_FIXTURES / "spec_closed", workspace_root=REPOSITORY_FIXTURES
+    )
+    findings = {finding.id: finding for finding in result.findings}
+
+    closed = findings["undeclared-observed-dependency:delta:epsilon"]
+    assert closed.severity.value == "error"
+    assert closed.category.value == "violation"
+
+    # The same edge shape under the default open policy stays drift, not a violation.
+    open_policy = findings["undeclared-observed-dependency:zeta:epsilon"]
+    assert open_policy.severity.value == "warning"
+    assert open_policy.category.value == "stale-specification"
 
 
 def test_migration_valid_fixture_reports_pending_symbol_removal_only() -> None:

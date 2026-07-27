@@ -177,3 +177,30 @@ def test_cli_context_json_success(capsys, monkeypatch) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["seeds"] == ["authoritative-state"]
     assert payload["dependency_depth"] == 1
+
+
+def test_cli_query_dependencies_reports_transitive_path(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "pasm",
+            "query",
+            "dependencies",
+            "indirect-source",
+            str(FIXTURES / "invalid"),
+            "--transitive",
+            "--json",
+        ],
+    )
+    main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["dependency_policy"] == "open"
+    assert payload["direct"] == ["indirect-middle"]
+    assert payload["forbidden"] == ["indirect-sink"]
+    assert payload["transitive"] == [
+        {
+            "entity": "indirect-sink",
+            "path": ["indirect-source", "indirect-middle", "indirect-sink"],
+        }
+    ]

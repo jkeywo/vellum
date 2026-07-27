@@ -1,0 +1,6 @@
+entities:
+  - component: unknown-policy-holder
+    core:
+      status: implemented
+    architecture:
+      dependency_policy: strict

@@ -1,0 +1,34 @@
+entities:
+  - component: delta
+    core:
+      status: implemented
+      confidence: confirmed
+      summary: Closed-policy entity with an undeclared observed dependency.
+    architecture:
+      dependency_policy: closed
+    implementation:
+      status: observed
+      paths:
+        - src/delta.rs
+
+  - component: epsilon
+    core:
+      status: implemented
+      confidence: confirmed
+      summary: Target of the closed-policy entity's undeclared edge.
+    implementation:
+      status: observed
+      paths:
+        - src/epsilon.rs
+
+  - component: zeta
+    core:
+      status: implemented
+      confidence: confirmed
+      summary: Open-policy entity with the same undeclared edge shape.
+    architecture:
+      dependency_policy: open
+    implementation:
+      status: observed
+      paths:
+        - src/zeta.rs

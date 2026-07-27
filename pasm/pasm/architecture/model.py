@@ -37,6 +37,9 @@ class ArchitectureSection:
     build_depends_on: tuple[EntityId, ...] = ()
     optional_dependency: tuple[EntityId, ...] = ()
     temporary_dependency: tuple[EntityId, ...] = ()
+    # "open" (default) permits undeclared observed dependencies as drift
+    # warnings; "closed" treats anything not declared as forbidden.
+    dependency_policy: str | None = None
     writers: tuple[EntityId, ...] = ()
     replicas: tuple[EntityId, ...] = ()
     derived_from: tuple[EntityId, ...] = ()

@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from pasm.core.findings import Finding, FindingCategory, Severity
 from pasm.core.model import EntityId, SpecEntity
+from pasm.relations import DEPENDENCY_FIELDS, build_graph, cyclic_components, shortest_path
 
 
 def validate_architecture(entities: tuple[SpecEntity, ...]) -> list[Finding]:
     findings: list[Finding] = []
     index = {entity.id: entity for entity in entities}
+    graph = build_graph(entities)
     findings.extend(_validate_architecture_reference_resolution(entities, index))
     findings.extend(_validate_authoritative_state_ownership(entities, index))
     findings.extend(_validate_forbidden_dependencies(entities))
+    findings.extend(_validate_dependency_policy(entities))
+    findings.extend(_validate_indirect_forbidden_dependencies(entities, graph))
+    findings.extend(_validate_dependency_cycles(entities, index, graph))
     findings.extend(_validate_message_contracts(entities))
     return findings
 
@@ -148,20 +153,13 @@ def _validate_authoritative_state_ownership(
 
 def _validate_forbidden_dependencies(entities: tuple[SpecEntity, ...]) -> list[Finding]:
     findings: list[Finding] = []
-    dependency_fields = (
-        "depends_on",
-        "runtime_depends_on",
-        "build_depends_on",
-        "optional_dependency",
-        "temporary_dependency",
-    )
     for entity in entities:
         architecture = entity.architecture
         if architecture is None or not architecture.must_not_depend_on:
             continue
         forbidden = set(architecture.must_not_depend_on)
         overlaps: set[EntityId] = set()
-        for field_name in dependency_fields:
+        for field_name in DEPENDENCY_FIELDS:
             overlaps.update(set(getattr(architecture, field_name)) & forbidden)
         for overlap in sorted(overlaps, key=lambda value: value.value):
             findings.append(
@@ -180,6 +178,123 @@ def _validate_forbidden_dependencies(entities: tuple[SpecEntity, ...]) -> list[F
                     requires_decision=False,
                 )
             )
+    return findings
+
+
+DEPENDENCY_POLICIES = ("open", "closed")
+
+
+def _validate_dependency_policy(entities: tuple[SpecEntity, ...]) -> list[Finding]:
+    findings: list[Finding] = []
+    for entity in entities:
+        architecture = entity.architecture
+        if architecture is None or architecture.dependency_policy is None:
+            continue
+        if architecture.dependency_policy in DEPENDENCY_POLICIES:
+            continue
+        findings.append(
+            Finding(
+                id=f"invalid-dependency-policy:{entity.id}",
+                category=FindingCategory.VIOLATION,
+                severity=Severity.ERROR,
+                confidence="confirmed",
+                summary=(
+                    f"Entity '{entity.id}' declares unknown dependency policy "
+                    f"'{architecture.dependency_policy}'."
+                ),
+                details="A dependency policy is 'open' (the default) or 'closed'.",
+                rule="architecture.dependency-policy-vocabulary",
+                spec_entities=(entity.id,),
+                implementation_locations=(entity.source_location,),
+                evidence=DEPENDENCY_POLICIES,
+                suggested_resolution="Use 'open' or 'closed', or remove the field.",
+                requires_decision=False,
+            )
+        )
+    return findings
+
+
+def _validate_indirect_forbidden_dependencies(
+    entities: tuple[SpecEntity, ...],
+    graph: dict[EntityId, tuple[EntityId, ...]],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for entity in entities:
+        architecture = entity.architecture
+        if architecture is None or not architecture.must_not_depend_on:
+            continue
+        direct = set()
+        for field_name in DEPENDENCY_FIELDS:
+            direct.update(getattr(architecture, field_name))
+        for target in sorted(set(architecture.must_not_depend_on), key=lambda value: value.value):
+            if target in direct:
+                continue  # Already reported as a direct forbidden dependency.
+            path = shortest_path(graph, entity.id, target)
+            if not path:
+                continue
+            findings.append(
+                Finding(
+                    id=f"indirect-forbidden-dependency:{entity.id}:{target}",
+                    category=FindingCategory.PROBABLE_VIOLATION,
+                    severity=Severity.WARNING,
+                    confidence="inferred",
+                    summary=f"Entity '{entity.id}' reaches forbidden dependency '{target}' through declared intermediaries.",
+                    details=(
+                        "The declared dependency graph has a path to an entity this one forbids "
+                        "depending on. The path may cross a legitimate interface, so PASM reports "
+                        "it for a decision rather than asserting a violation."
+                    ),
+                    rule="architecture.indirect-forbidden-dependency",
+                    spec_entities=(entity.id, target),
+                    implementation_locations=(entity.source_location,),
+                    evidence=(" -> ".join(step.value for step in path),),
+                    suggested_resolution=(
+                        "Break the path, narrow the rule to direct dependencies, or record an "
+                        "exception naming the intermediary that isolates the two."
+                    ),
+                    requires_decision=True,
+                )
+            )
+    return findings
+
+
+def _validate_dependency_cycles(
+    entities: tuple[SpecEntity, ...],
+    index: dict[EntityId, SpecEntity],
+    graph: dict[EntityId, tuple[EntityId, ...]],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for members in cyclic_components(graph):
+        first = members[0]
+        path = shortest_path(graph, first, first)
+        findings.append(
+            Finding(
+                id=f"dependency-cycle:{first}",
+                category=FindingCategory.ARCHITECTURE_RISK,
+                severity=Severity.WARNING,
+                confidence="confirmed",
+                summary=(
+                    f"Entity '{first}' is in a declared dependency cycle with "
+                    f"{len(members) - 1} other entit{'y' if len(members) == 2 else 'ies'}."
+                    if len(members) > 1
+                    else f"Entity '{first}' declares a dependency on itself."
+                ),
+                details=(
+                    "These entities are mutually reachable through declared dependencies. A cycle "
+                    "is not always wrong, but it means neither entity can be understood, changed, "
+                    "or extracted without the other."
+                ),
+                rule="architecture.dependency-cycle",
+                spec_entities=members,
+                implementation_locations=tuple(
+                    index[member].source_location for member in members if member in index
+                ),
+                evidence=((" -> ".join(step.value for step in path),) if path else ())
+                + tuple(member.value for member in members),
+                suggested_resolution="Break the cycle, or invert one edge through an interface entity that both sides depend on.",
+                requires_decision=True,
+            )
+        )
     return findings
 
 

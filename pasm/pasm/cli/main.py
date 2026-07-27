@@ -13,6 +13,7 @@ from pasm.integration.traceability import build_traceability_rows
 from pasm.domains.game_design.scenarios import load_scenario, validate_scenario
 from pasm.audit import build_audit_bundle, load_audit_report, persist_audit_report
 from pasm.context import build_context_bundle
+from pasm.relations import build_graph, reachable, shortest_path
 
 
 def main() -> int:
@@ -94,6 +95,30 @@ def main() -> int:
         help="Emit machine-readable JSON.",
     )
     implementation_parser.add_argument(
+        "--workspace-root",
+        help="Repository root used to resolve implementation paths.",
+    )
+    dependencies_parser = query_subparsers.add_parser(
+        "dependencies", help="Show declared dependencies for one entity."
+    )
+    dependencies_parser.add_argument("entity_id", help="Semantic entity ID to load.")
+    dependencies_parser.add_argument(
+        "spec_root",
+        nargs="?",
+        default="pasm/spec",
+        help="Directory containing PASM YAML files.",
+    )
+    dependencies_parser.add_argument(
+        "--transitive",
+        action="store_true",
+        help="Include entities reachable through declared dependencies, with the path to each.",
+    )
+    dependencies_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON.",
+    )
+    dependencies_parser.add_argument(
         "--workspace-root",
         help="Repository root used to resolve implementation paths.",
     )
@@ -300,6 +325,23 @@ def main() -> int:
         else:
             print(_implementation_to_text(args.entity_id, entity.implementation))
         return 0
+    if args.command == "query" and args.query_command == "dependencies":
+        result = _validate_from_args(args)
+        entity = result.model.entity_by_id(args.entity_id)
+        if entity is None:
+            payload = {
+                "ok": False,
+                "error": f"Entity '{args.entity_id}' was not found.",
+                "spec_root": result.model.spec_root.as_posix(),
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True) if args.json else payload["error"])
+            return 1
+        payload = _dependencies_payload(entity, result.model.entities, args.transitive)
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(_dependencies_to_text(payload))
+        return result.exit_code
     if args.command == "query" and args.query_command == "migration":
         result = _validate_from_args(args)
         if not result.ok:
@@ -547,6 +589,46 @@ def _implementation_to_text(entity_id: str, implementation) -> str:
             lines.append(f"{label}:")
             for value in values:
                 lines.append(f"  - {value}")
+    return "\n".join(lines)
+
+
+def _dependencies_payload(entity, entities, transitive: bool) -> dict:
+    graph = build_graph(entities)
+    architecture = entity.architecture
+    payload = {
+        "entity": entity.id.value,
+        "dependency_policy": (architecture.dependency_policy if architecture else None) or "open",
+        "direct": [target.value for target in graph.get(entity.id, ())],
+        "forbidden": [target.value for target in architecture.must_not_depend_on] if architecture else [],
+        "limitations": (
+            "Declared dependencies only. Observed source-file edges come from 'pasm scan'."
+        ),
+    }
+    if transitive:
+        indirect = sorted(reachable(graph, entity.id) - set(graph.get(entity.id, ())))
+        payload["transitive"] = [
+            {
+                "entity": target.value,
+                "path": [step.value for step in shortest_path(graph, entity.id, target)],
+            }
+            for target in indirect
+            if target != entity.id
+        ]
+    return payload
+
+
+def _dependencies_to_text(payload: dict) -> str:
+    lines = [f"Dependencies: {payload['entity']}", f"Policy: {payload['dependency_policy']}"]
+    for label in ("direct", "forbidden"):
+        if payload[label]:
+            lines.append(f"{label}:")
+            lines.extend(f"  - {value}" for value in payload[label])
+    if payload.get("transitive"):
+        lines.append("transitive:")
+        lines.extend(
+            f"  - {item['entity']}  ({' -> '.join(item['path'])})"
+            for item in payload["transitive"]
+        )
     return "\n".join(lines)
 
 

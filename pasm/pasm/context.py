@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from pasm.core.model import SpecEntity
+from pasm.relations import relation_targets
 
 RELATION_FIELDS = (
     "owner", "owns", "reads", "readers", "writes", "produces", "consumes",
@@ -47,15 +48,4 @@ def build_context_bundle(entities: tuple[SpecEntity, ...], seeds: tuple[str, ...
 
 
 def _targets(entity: SpecEntity) -> set[str]:
-    if entity.architecture is None:
-        return set()
-    targets: set[str] = set()
-    for name in RELATION_FIELDS:
-        value = getattr(entity.architecture, name)
-        if value is None:
-            continue
-        if isinstance(value, tuple):
-            targets.update(item.value for item in value)
-        else:
-            targets.add(value.value)
-    return targets
+    return {target.value for target in relation_targets(entity.architecture, RELATION_FIELDS)}

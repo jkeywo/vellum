@@ -1,0 +1,13 @@
+entities:
+  - component: cycle-alpha
+    core:
+      status: implemented
+    architecture:
+      depends_on:
+        - cycle-beta
+  - component: cycle-beta
+    core:
+      status: implemented
+    architecture:
+      runtime_depends_on:
+        - cycle-alpha

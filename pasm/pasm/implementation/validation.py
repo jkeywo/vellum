@@ -169,6 +169,9 @@ def _requires_repository_observation(entities: tuple[SpecEntity, ...]) -> bool:
             or entity.architecture.optional_dependency
             or entity.architecture.temporary_dependency
             or entity.architecture.must_not_depend_on
+            # A closed entity forbids every undeclared edge, so it needs the
+            # observation even when it declares no dependencies at all.
+            or entity.architecture.dependency_policy == "closed"
         )
         for entity in entities
     )
@@ -229,7 +232,7 @@ def _validate_observed_dependency_drift(entities, workspace_root: Path, inventor
             findings.append(
                 _dependency_finding(
                     "observed-forbidden-dependency",
-                    FindingCategory.IMPLEMENTATION_DEFECT,
+                    FindingCategory.VIOLATION,
                     Severity.ERROR,
                     entity,
                     target_id,
@@ -240,16 +243,25 @@ def _validate_observed_dependency_drift(entities, workspace_root: Path, inventor
                 )
             )
 
+        # A closed entity has said its declared dependencies are the complete
+        # permitted set, so an undeclared edge is a violation rather than the
+        # specification lagging the code.
+        closed = architecture.dependency_policy == "closed"
         for target_id in sorted(observed_targets - allowed - forbidden):
             findings.append(
                 _dependency_finding(
                     "undeclared-observed-dependency",
-                    FindingCategory.STALE_SPECIFICATION,
-                    Severity.WARNING,
+                    FindingCategory.VIOLATION if closed else FindingCategory.STALE_SPECIFICATION,
+                    Severity.ERROR if closed else Severity.WARNING,
                     entity,
                     target_id,
                     observed_edges[(entity_id, target_id)],
-                    "Repository observation found a direct local dependency missing from PASM.",
+                    (
+                        "Repository observation found a direct local dependency that this entity's "
+                        "closed dependency policy does not permit."
+                        if closed
+                        else "Repository observation found a direct local dependency missing from PASM."
+                    ),
                     "implementation.observed-dependency-declared",
                     "Declare the dependency, classify it as an allowed exception, or remove the code edge.",
                 )

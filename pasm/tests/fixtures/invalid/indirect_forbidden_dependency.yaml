@@ -1,0 +1,18 @@
+entities:
+  - component: indirect-source
+    core:
+      status: implemented
+    architecture:
+      depends_on:
+        - indirect-middle
+      must_not_depend_on:
+        - indirect-sink
+  - component: indirect-middle
+    core:
+      status: implemented
+    architecture:
+      depends_on:
+        - indirect-sink
+  - component: indirect-sink
+    core:
+      status: implemented
