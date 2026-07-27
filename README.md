@@ -4,7 +4,7 @@ The shared foundation for a fleet of Rust/Bevy games. What lives here:
 
 | directory | what it is | rules |
 |---|---|---|
-| `crates/` | the engine layer — digest, rng, strings, replay, grid | **the no-fingerprint-moves charter below** |
+| `crates/` | the engine layer — the eleven crates listed below | **the no-fingerprint-moves charter below** |
 | `pasm/` | the PASM spec tool (Python), consumed by every game as a git subdirectory dependency | ordinary rules |
 | `pasm/spec/` | vellum's own PASM spec — the foundation models itself | ordinary rules |
 | `docs/handbook/` | fleet conventions: versions, architecture, CI, content, determinism tiers | ordinary rules |
@@ -43,6 +43,7 @@ This is the part that was genuinely the same.
 | `vellum-compose` | the content-composition mechanism: template catalogs, shallow explicit overrides, layer stacking, all-or-nothing overlays |
 | `vellum-editor` | the runtime data-editor mechanism: a reflection walker, field descriptors, and the sparse save path |
 | `vellum-script` | the deterministic Rhai host: a deny-by-default sandbox, content hashing, the call seam |
+| `vellum-save` | the persistence contract: `Progress` migrates, `Run` refuses, over a slot `Store` |
 
 ## The constraint everything here is shaped by
 
