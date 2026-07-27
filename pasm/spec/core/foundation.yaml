@@ -33,7 +33,7 @@ entities:
       confidence: confirmed
       title: The engine layer (crates/)
       summary: >
-        Ten crates. The first five were extracted from project-murmur and
+        Eleven crates. The first five were extracted from project-murmur and
         rogue-hunter after both games grew the same code independently; the
         rest arrived with the consumers that needed them. A save in the two
         sacred games is a seed plus a command log, so the RNG byte stream and
@@ -48,8 +48,10 @@ entities:
         - >
           Consumers, not guesses, decide the shape: void-and-thunder drove
           corpus, perf, compose, and editor; last-aeon drove script;
-          project-phoenix-v2 adopts perf, replay, rng, and digest for its
-          measurement and determinism work.
+          void-and-thunder and necessary-work drove save from opposite ends,
+          which is why it splits progress from runs; project-phoenix-v2 adopts
+          perf, replay, rng, and digest for its measurement and determinism
+          work.
     implementation:
       status: observed
       paths:
@@ -62,6 +64,11 @@ entities:
         - crates/vellum-replay/src/lib.rs
         - crates/vellum-replay/src/contract.rs
         - crates/vellum-rng/src/lib.rs
+        - crates/vellum-save/src/lib.rs
+        - crates/vellum-save/src/progress.rs
+        - crates/vellum-save/src/run.rs
+        - crates/vellum-save/src/store.rs
+        - crates/vellum-save/src/version.rs
         - crates/vellum-script/src/lib.rs
         - crates/vellum-strings/src/lib.rs
         - crates/vellum-strings/src/audit.rs
@@ -88,6 +95,10 @@ entities:
         - edit_value
         - sandbox
         - call_fn
+        - Progress
+        - Run
+        - Store
+        - Versions
 
   - component: pasm-package
     core:
