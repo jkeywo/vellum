@@ -34,7 +34,11 @@ The same test applies to widening an existing crate's API.
 
 ## Gates
 
-Run all of these before calling work done. This repository has **no root
+All of these must be green before each commit — but run the full list **once**,
+as a final gate pass when the change is otherwise sound, not after every edit,
+implementation pass, or review pass (clippy is a near-full rebuild). While
+iterating, use `cargo check` and the targeted tests for the area you touched;
+review passes are read-only and run no gates. This repository has **no root
 `pyproject.toml`** — the Python gates run from `pasm/`.
 
 ```bash
