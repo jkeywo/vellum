@@ -81,14 +81,67 @@ pub trait Sampling: Simulation {
     fn advance_to(&mut self, tick: u64);
 }
 
-/// Everything needed to replay a run and check that it replayed.
+/// Captured authoritative state: where a run stood at one tick, exactly.
+///
+/// This is what makes a `Run` a *save* rather than only a recording. A run
+/// that starts from a seed reproduces a whole game; a run that starts from a
+/// snapshot reproduces the rest of one — and a snapshot with an empty log is
+/// simply a saved game, which is the shape phoenix stores first (its #862
+/// lands before its lockstep work, so its first artifact is captured state
+/// with no commands at all).
+///
+/// It lives on `Run` rather than as a third concept because it shares `Run`'s
+/// defining property: **it never migrates.** Captured world state under
+/// changed rules is exactly as unreplayable as a command log under changed
+/// rules, so it belongs behind the same [`Versions`] gate, refused with the
+/// same honesty.
+///
+/// The corruption question — "does stored state still match itself?" — is
+/// answered by `digest`, not by a text self-hash like [`Progress`]'s record
+/// carries: a snapshot's digest is recomputed *by the restored simulation*,
+/// so tampered or truncated state surfaces as a digest mismatch at restore,
+/// which is a stronger check than any hash of the text could be. One field,
+/// but genuinely one question — for a snapshot, "does it match itself" and
+/// "did the restore reproduce the capture" are the same thing.
+///
+/// [`Progress`]: crate::Progress
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Run<C> {
+pub struct Snapshot<S> {
+    /// The tick the state was captured at. Commands in the log stamped
+    /// earlier than this are a recording error, not something a restore can
+    /// honour.
+    pub tick: u64,
+    /// The simulation's digest at capture. [`verify`] checks the restored
+    /// simulation against it before replaying anything.
+    pub digest: u64,
+    /// The game's own serialisable world state. Only the game knows its
+    /// shape, which is why [`verify`] never reads it — restoring is the
+    /// game's job, checking the restore is this crate's.
+    pub state: S,
+}
+
+/// Everything needed to replay a run and check that it replayed.
+///
+/// The snapshot parameter defaults to `()` so a game without one — every
+/// consumer before phoenix — neither names it nor stores it: the field is
+/// skipped when `None`, so a snapshotless run's stored text is byte-identical
+/// to what this crate wrote before the field existed, and old stored runs
+/// parse unchanged. No fingerprint moves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Run<C, S = ()> {
     pub versions: Versions,
     /// Which scenario, level or mission this was. Free-form: the games
     /// disagree about what a run is *of*, and none of them are wrong.
     pub scenario: String,
     pub seed: u64,
+    /// Captured state to start from instead of only the seed. `None` is a
+    /// recording from the beginning; `Some` is a save.
+    ///
+    /// The explicit `default = "Option::default"` path (rather than bare
+    /// `default`) stops serde inferring an `S: Default` bound the field does
+    /// not need — a missing field is `None` whatever `S` is.
+    #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<Snapshot<S>>,
     /// The log. Rejected commands belong here too if the game logs them — a
     /// command that was refused once must be refused again, and a replay that
     /// silently accepted it has diverged.
@@ -96,12 +149,16 @@ pub struct Run<C> {
     pub ledger: Ledger,
 }
 
-impl<C: Serialize + serde::de::DeserializeOwned> Run<C> {
+impl<C, S> Run<C, S>
+where
+    C: Serialize + serde::de::DeserializeOwned,
+    S: Serialize + serde::de::DeserializeOwned,
+{
     pub fn to_ron(&self) -> Result<String, ron::Error> {
         ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default())
     }
 
-    pub fn from_ron(text: &str) -> Result<Run<C>, ron::error::SpannedError> {
+    pub fn from_ron(text: &str) -> Result<Run<C, S>, ron::error::SpannedError> {
         ron::from_str(text)
     }
 }
@@ -162,20 +219,44 @@ impl<R: fmt::Display> fmt::Display for Verdict<R> {
 
 /// Replay `run` into `sim` and report whether it reproduced.
 ///
-/// `sim` must be freshly built from `run.seed` and the current content — this
-/// takes it rather than building it because only the game knows how.
+/// `sim` must be freshly built from `run.seed` and the current content — or,
+/// when the run carries a [`Snapshot`], restored from it and standing at its
+/// tick. This takes the simulation rather than building it because only the
+/// game knows how, and that goes for restoring too.
 ///
 /// The version gate runs first and refuses without replaying. That ordering is
 /// the whole reason the gate exists: replaying a run under changed rules
 /// produces a divergence report about a run that was never going to reproduce,
 /// which reads like a bug in the simulation instead of a stale save.
-pub fn verify<S: Sampling>(
-    run: &Run<S::Command>,
+///
+/// The snapshot check runs second, before any command: a restored simulation
+/// whose digest disagrees with the capture is reported as a divergence *at
+/// the capture tick*, because that is exactly what it is — the state came out
+/// different there, and every command replayed on top of it would only bury
+/// the evidence. This is also the snapshot's corruption check: tampered or
+/// truncated state cannot restore to the recorded digest.
+///
+/// A snapshot run's ledger should begin at the capture — samples recorded
+/// before `snapshot.tick` describe a stretch the restored simulation never
+/// replays, and will be reported as disagreements.
+pub fn verify<Sim: Sampling, S>(
+    run: &Run<Sim::Command, S>,
     current: &Versions,
-    sim: &mut S,
-) -> Verdict<S::Rejection> {
+    sim: &mut Sim,
+) -> Verdict<Sim::Rejection> {
     if let Err(moved) = run.versions.check(current) {
         return Verdict::Refused(moved);
+    }
+
+    if let Some(snapshot) = &run.snapshot {
+        let restored = sim.digest();
+        if restored != snapshot.digest {
+            return Verdict::Diverged {
+                at_tick: Some(snapshot.tick),
+                recorded: snapshot.digest,
+                replayed: restored,
+            };
+        }
     }
 
     if let Err(diverged) = replay_into(sim, &run.commands) {
@@ -314,6 +395,7 @@ mod tests {
             versions: Versions::new(1, "0.1", 0x99),
             scenario: "counting".into(),
             seed: 7,
+            snapshot: None,
             commands,
             ledger: sim.ledger.clone(),
         }
@@ -464,5 +546,206 @@ mod tests {
             verify(&run, &run.versions.clone(), &mut sim),
             Verdict::Diverged { at_tick: None, .. }
         ));
+    }
+
+    // --- snapshots -----------------------------------------------------------
+
+    /// The counter's own captured state — the shape only the game knows.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct CounterState {
+        tick: u64,
+        total: i64,
+    }
+
+    impl Counter {
+        fn capture(&self) -> Snapshot<CounterState> {
+            Snapshot {
+                tick: self.tick,
+                digest: self.digest(),
+                state: CounterState {
+                    tick: self.tick,
+                    total: self.total,
+                },
+            }
+        }
+
+        /// Restoring is the game's job; [`verify`] only checks it.
+        fn restore(snapshot: &Snapshot<CounterState>, every: u64) -> Counter {
+            let mut sim = Counter::new(every);
+            sim.tick = snapshot.state.tick;
+            sim.total = snapshot.state.total;
+            sim
+        }
+    }
+
+    /// Capture mid-run, restore into a fresh simulation, verify — the shape
+    /// of phoenix's #862 tracer. The log is empty and the ledger holds only
+    /// the capture: a saved game, not yet a recording.
+    #[test]
+    fn a_snapshot_with_an_empty_log_is_a_saved_game_that_verifies() {
+        let mut live = Counter::new(0);
+        replay_into(&mut live, &commands()).expect("the recording replays");
+        live.advance_to(50);
+        let snapshot = live.capture();
+
+        let run: Run<Stamped, CounterState> = Run {
+            versions: Versions::new(1, "0.1", 0x99),
+            scenario: "counting".into(),
+            seed: 7,
+            snapshot: Some(snapshot.clone()),
+            commands: vec![],
+            ledger: Ledger {
+                every: 0,
+                samples: vec![],
+                final_digest: snapshot.digest,
+                final_tick: snapshot.tick,
+            },
+        };
+
+        let mut restored = Counter::restore(run.snapshot.as_ref().unwrap(), 0);
+        assert_eq!(
+            verify(&run, &run.versions.clone(), &mut restored),
+            Verdict::Reproduced
+        );
+    }
+
+    /// A save is a resume point, not only a checkpoint: commands recorded
+    /// after the capture replay on top of the restored state, and the run
+    /// ends wherever the continued session ended.
+    #[test]
+    fn a_snapshot_run_replays_its_continuation() {
+        let mut live = Counter::new(10);
+        replay_into(&mut live, &commands()).expect("the recording replays");
+        live.advance_to(50);
+        let snapshot = live.capture();
+        live.ledger.samples.clear(); // The ledger begins at the capture.
+        let continuation = vec![Stamped { tick: 60, add: 4 }];
+        replay_into(&mut live, &continuation).expect("the continuation replays");
+        live.advance_to(100);
+
+        let run: Run<Stamped, CounterState> = Run {
+            versions: Versions::new(1, "0.1", 0x99),
+            scenario: "counting".into(),
+            seed: 7,
+            snapshot: Some(snapshot),
+            commands: continuation,
+            ledger: live.ledger.clone(),
+        };
+
+        let mut restored = Counter::restore(run.snapshot.as_ref().unwrap(), 10);
+        assert_eq!(
+            verify(&run, &run.versions.clone(), &mut restored),
+            Verdict::Reproduced
+        );
+    }
+
+    /// The corruption check: tampered captured state cannot restore to the
+    /// recorded digest, and the report names the capture tick — before a
+    /// single command is replayed on top of the wrong world.
+    #[test]
+    fn a_tampered_snapshot_diverges_at_the_capture_tick() {
+        let mut live = Counter::new(0);
+        replay_into(&mut live, &commands()).expect("the recording replays");
+        live.advance_to(50);
+        let mut snapshot = live.capture();
+        snapshot.state.total += 1;
+
+        let run: Run<Stamped, CounterState> = Run {
+            versions: Versions::new(1, "0.1", 0x99),
+            scenario: "counting".into(),
+            seed: 7,
+            snapshot: Some(snapshot.clone()),
+            commands: vec![],
+            ledger: Ledger {
+                every: 0,
+                samples: vec![],
+                final_digest: snapshot.digest,
+                final_tick: snapshot.tick,
+            },
+        };
+
+        let mut restored = Counter::restore(run.snapshot.as_ref().unwrap(), 0);
+        assert!(matches!(
+            verify(&run, &run.versions.clone(), &mut restored),
+            Verdict::Diverged {
+                at_tick: Some(50),
+                ..
+            }
+        ));
+    }
+
+    /// A snapshot never migrates, for the same reason a run never does: the
+    /// version gate refuses it before the restore is even examined.
+    #[test]
+    fn a_snapshot_under_changed_rules_is_refused_like_any_run() {
+        let mut live = Counter::new(0);
+        live.advance_to(50);
+        let snapshot = live.capture();
+
+        let run: Run<Stamped, CounterState> = Run {
+            versions: Versions::new(1, "0.1", 0x99),
+            scenario: "counting".into(),
+            seed: 7,
+            snapshot: Some(snapshot.clone()),
+            commands: vec![],
+            ledger: Ledger {
+                every: 0,
+                samples: vec![],
+                final_digest: snapshot.digest,
+                final_tick: snapshot.tick,
+            },
+        };
+
+        let current = Versions::new(1, "0.2", 0x99);
+        let mut restored = Counter::restore(run.snapshot.as_ref().unwrap(), 0);
+        assert!(matches!(
+            verify(&run, &current, &mut restored),
+            Verdict::Refused(Moved::Rules { .. })
+        ));
+    }
+
+    /// The no-fingerprint-moves proof, both directions. A run written before
+    /// the field existed parses unchanged, and a snapshotless run writes text
+    /// with no trace of the field — murmur's and rogue-hunter's stored player
+    /// runs are part of their save formats, and this field must be invisible
+    /// to them.
+    #[test]
+    fn a_snapshotless_run_is_byte_compatible_with_the_old_shape() {
+        let run = record(commands(), 100, 10);
+        let text = run.to_ron().expect("serializes");
+        assert!(
+            !text.contains("snapshot"),
+            "a run without a snapshot must not mention one"
+        );
+
+        // The literal shape this crate wrote before Snapshot existed.
+        let old = "(\n\
+            versions: (format: 1, rules: \"0.1\", content: 153),\n\
+            scenario: \"counting\",\n\
+            seed: 7,\n\
+            commands: [],\n\
+            ledger: (every: 0, samples: [], final_digest: 0, final_tick: 0),\n\
+        )";
+        let parsed: Run<Stamped> = Run::from_ron(old).expect("the old shape still parses");
+        assert_eq!(parsed.snapshot, None);
+    }
+
+    #[test]
+    fn a_snapshot_run_round_trips_through_ron() {
+        let mut live = Counter::new(0);
+        live.advance_to(50);
+        let run: Run<Stamped, CounterState> = Run {
+            versions: Versions::new(1, "0.1", 0x99),
+            scenario: "counting".into(),
+            seed: 7,
+            snapshot: Some(live.capture()),
+            commands: vec![],
+            ledger: live.ledger.clone(),
+        };
+        let text = run.to_ron().expect("serializes");
+        assert_eq!(
+            Run::<Stamped, CounterState>::from_ron(&text).expect("parses"),
+            run
+        );
     }
 }

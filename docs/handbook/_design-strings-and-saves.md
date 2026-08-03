@@ -161,6 +161,31 @@ plus log). Two constraints it brings:
   now an open question rather than a settled one, and it is answered by phoenix's
   adoption rather than in advance.
 
+**Settled 2026-08-04, by phoenix's adoption: a field on `Run`, as this design
+originally said.** `Run<C, S = ()>` carries `snapshot: Option<Snapshot<S>>` —
+`{ tick, digest, state: S }`, where `state` is the game's own type and this
+crate never reads it. The reasoning that settled it: a snapshot shares `Run`'s
+defining property, **it never migrates** — captured world state under changed
+rules is exactly as unreplayable as a command log under changed rules — so it
+belongs behind the same `Versions` gate rather than growing a third concept
+with a duplicate of that gate. A snapshot with an empty log is a saved game
+(phoenix's first artifact, above); with a continuation log it is a resumable
+one; and `verify` needed almost nothing: the restored simulation's digest is
+checked against `snapshot.digest` before any command replays, and a mismatch
+reports as a divergence *at the capture tick*.
+
+That upfront check is also the snapshot's **corruption** answer, which amends
+§5's table: the snapshot carries no text self-hash the way a `Progress` record
+does, because its digest is recomputed *by the restored simulation* — tampered
+or truncated state cannot restore to the recorded digest, a strictly stronger
+check than hashing the stored text. For a snapshot, "does stored state match
+itself" and "did the restore reproduce the capture" are the same question.
+
+No other game's stored runs change by a byte: the field defaults to `()`,
+is skipped when `None`, and old stored text parses unchanged — checked by
+`a_snapshotless_run_is_byte_compatible_with_the_old_shape` in `run.rs`. No
+fingerprint moves.
+
 v&t forces the distinction: its input is continuous analog at 64 Hz, so a
 "command log" for v&t would be an input recording, not a log. It can never be
 a replay game — and it still wants totals to survive a refresh.
@@ -222,7 +247,7 @@ get a working native+web pair. A `Progress`-only consumer (v&t) never pulls
 | role | question | where |
 |---|---|---|
 | integrity | did the bytes survive the trip? | CRC-32 in `ShareCodec` (already shipped) |
-| corruption | does stored state match itself? | self-hash on `Progress` and any snapshot |
+| corruption | does stored state match itself? | self-hash on `Progress`; on a snapshot, the capture digest at restore (see §1) |
 | divergence | did a replay reproduce the recording? | ledger on `Run` |
 
 The divergence ledger keeps the final hash always and periodic hashes every
@@ -293,10 +318,11 @@ Each wave lands a crate with real driving consumers, per
   (`Plunder { ships_boarded }` and `Encounter { wave, .. }`, both reset per
   run), so it can never test `Run`. necessary-work is the `Run` driver for
   exactly this reason.
-- **Nothing in the original Wave 2 exercised a snapshot**, which is why the
-  field went unbuilt — see §1. Phoenix closes that gap, and until its adoption
-  lands, "a snapshot is a field of `Run`" is a design intention with no code and
-  no test behind it. Stated here rather than left to be discovered.
+- **The snapshot field now exists with its own tests (§1, settled 2026-08-04),
+  but no shipped game exercises it yet.** Phoenix's #862 tracer is the adoption
+  that will; until it lands, the field's evidence is `run.rs`'s own suite —
+  capture/restore/verify against the test counter, not against a real world.
+  Stated here rather than left to be discovered.
 - **`Store` is text, so a snapshot is text.** RON keeps a save diagnosable by
   hand, and that is the right trade for five games storing small records. A game
   whose authoritative state is large enough to want a dense binary encoding

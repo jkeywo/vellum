@@ -254,6 +254,44 @@ entities:
         - rng-unification-breaks-saves
         - new-crates-need-a-consumer
 
+  - decision: snapshot-is-a-field-on-run
+    core:
+      status: accepted
+      confidence: confirmed
+      title: "Captured world state is an optional field on Run, settled by phoenix (2026-08-04)"
+      summary: >-
+        The question the 2026-07-26 correction reopened — field on Run, or the
+        third concept the design rejected — closes on the side the design
+        originally took. Run grows a second type parameter defaulting to unit
+        and an optional Snapshot field carrying tick, digest, and the game's
+        own state type, which the crate never reads. A snapshot with an empty
+        log is a saved game (phoenix's first artifact, its issue 862); with a
+        continuation log it is a resumable one. verify checks the restored
+        simulation's digest against the capture before replaying anything and
+        reports a mismatch as a divergence at the capture tick.
+      rationale:
+        - >-
+          A snapshot shares Run's defining property, never migrating. Captured
+          state under changed rules is exactly as unreplayable as a command
+          log under changed rules, so it belongs behind the same Versions gate
+          rather than growing a third concept with a duplicate of that gate.
+        - >-
+          The corruption question is answered by the capture digest at
+          restore rather than a text self-hash. The digest is recomputed by
+          the restored simulation, so tampered state cannot restore to it — a
+          strictly stronger check than hashing text, and for a snapshot "does
+          stored state match itself" and "did the restore reproduce the
+          capture" are the same question.
+        - >-
+          No fingerprint moves. The parameter defaults to unit, the field is
+          skipped when None, and old stored runs parse unchanged in both
+          directions — murmur's and rogue-hunter's stored player runs are
+          byte-identical, held by a byte-compatibility test in run.rs.
+      references:
+        - phoenix-adopts-the-engine-crates
+        - saves-are-progress-and-run
+        - determinism-has-two-tiers
+
   - decision: content-pipeline-is-in-scope
     core:
       status: accepted

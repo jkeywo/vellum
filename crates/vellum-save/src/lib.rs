@@ -7,6 +7,14 @@
 //! | [`Progress`] | durable state: unlocks, totals, settings | v&t, the-usual, murmur |
 //! | [`Run`] | a replayable run: seed + log + digests | rogue-hunter, murmur, last-aeon, necessary-work |
 //!
+//! A [`Run`] may also carry a [`Snapshot`] — captured world state to start
+//! from instead of only a seed. That is not a third concept: a snapshot
+//! refuses forever exactly as a log does (captured state under changed rules
+//! is just as unreplayable), so it lives behind [`Run`]'s version gate. A
+//! snapshot with an empty log is a saved game; with a continuation log it is
+//! a resumable one. phoenix is the consumer that shaped it, and no other
+//! game's stored runs change by a byte — the field is skipped when absent.
+//!
 //! A game opts into either, or both. They are not two configurations of one
 //! envelope, and the difference is not cosmetic — **runs refuse forever and
 //! progress migrates**, which is inherent rather than a policy this crate
@@ -44,7 +52,7 @@
 //!
 //! ```text
 //! vellum-save            Store, Progress, Versions   (serde + ron only)
-//!   feature run          Run, verify                 (pulls vellum-replay)
+//!   feature run          Run, Snapshot, verify       (pulls vellum-replay)
 //!   feature backend-fs   <root>/<slot>.ron
 //!   feature backend-web  localStorage["<game>:<slot>"]
 //! ```
@@ -69,4 +77,4 @@ pub use store::LocalStorage;
 #[cfg(feature = "run")]
 mod run;
 #[cfg(feature = "run")]
-pub use run::{verify, Ledger, Run, Sample, Sampling, Verdict};
+pub use run::{verify, Ledger, Run, Sample, Sampling, Snapshot, Verdict};
