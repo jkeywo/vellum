@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import yaml
 from pathlib import Path
 from dataclasses import asdict, is_dataclass
@@ -18,6 +19,16 @@ from pasm.review import collect_review_items, review_to_json, review_to_text
 
 
 def main() -> int:
+    # Spec prose is full of arrows and dashes, and a Windows console defaults
+    # to a codepage that cannot encode them — which turned `pasm review` into
+    # a UnicodeEncodeError the first time a title contained one. Replacement
+    # keeps every command printable everywhere; JSON output was never affected
+    # because json.dumps escapes to ASCII.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(prog="pasm")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
