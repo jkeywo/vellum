@@ -308,3 +308,36 @@ entities:
         pipeline can go is answered by adoption, not speculation.
       references:
         - corpus-and-perf-are-the-next-crates
+
+  - decision: decisions-carry-an-origin
+    core:
+      status: accepted
+      confidence: confirmed
+      title: AI-originated decisions are marked, revisable, and audited (2026-07-30)
+      summary: >-
+        Decisions an agent makes while working were indistinguishable from
+        the user's, so later agents treated them as settled intent and wrong
+        AI choices calcified — the pain that surfaced in project-phoenix-v2.
+        Now an entity an agent originated carries core.origin ai, and a
+        rationale bullet an agent wrote starts with the literal "[ai] "
+        prefix; absence means human, so existing specs parse unchanged. The
+        markers grant later agents licence to revise those decisions without
+        ceremony, and pasm review lists everything still marked. Ratification
+        is deletion — a human who audits an item and finds it correct removes
+        the marker and becomes the author of record, with git as the ledger.
+        Agents never remove markers and never alter unmarked decisions
+        without asking; that contract binds through the AGENTS.md chain
+        rather than the validator, because unmarked-means-human was chosen
+        over mandatory marking to leave the fleet's existing entities
+        untouched.
+      rationale:
+        - >-
+          Line-level marking exists because entity-level alone would miss the
+          fleet's largest spec: project-phoenix-v2 records most architecture
+          decisions as rationale bullets on components, not as decision
+          entities.
+        - >-
+          The prefix convention deliberately mirrors the strings rule where
+          an agent wraps lines it writes in square brackets and a human
+          removes them — one provisional-until-ratified shape across the
+          fleet, in prose and in spec alike.

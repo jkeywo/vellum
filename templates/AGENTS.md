@@ -48,10 +48,21 @@ english`. Code holds ids, never words.
 
 1. Model first, then build — spec entities before Rust for a new system.
 2. Record decisions in `pasm/spec/core/decisions.yaml` as you make them.
-3. `uv run pasm validate pasm/spec` after any model change; fix before commit.
-4. `uv run pasm scan pasm/spec --json` periodically; close gaps in the model
+3. **Mark what you originate.** A decision the human made in conversation is
+   theirs — record it unmarked. A decision *you* made while working gets
+   `origin: ai` on the entity, or a literal `[ai] ` prefix on the rationale
+   bullet you wrote. When in doubt whose it is, mark it — a false `ai` costs
+   one audit glance; a false `human` calcifies your guess as their intent.
+4. **AI-origin decisions are revisable.** If evidence says an `origin: ai`
+   entity or an `[ai]` bullet is wrong, change it — update, replace, or
+   delete, keeping the marker, and say so in the commit. Unmarked decisions
+   are the human's: never alter one without asking, and **never remove a
+   marker** — ratification is the human deleting it after audit
+   (`uv run pasm review pasm/spec` lists everything still awaiting that).
+5. `uv run pasm validate pasm/spec` after any model change; fix before commit.
+6. `uv run pasm scan pasm/spec --json` periodically; close gaps in the model
    or the code, whichever is wrong.
-5. Never leave dead spec — removing a system updates its declarations.
+7. Never leave dead spec — removing a system updates its declarations.
 
 ## Common commands
 

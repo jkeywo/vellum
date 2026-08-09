@@ -81,6 +81,13 @@ a clean bill of health.
 Gotcha: a PASM YAML string containing `": "` must be quoted, or validation
 fails with `invalid-list-item ... must be a string`.
 
+Decisions carry an origin: `core.origin: ai` on entities an agent originated,
+a literal `[ai] ` prefix on rationale bullets it wrote, absence meaning human.
+AI-origin items are revisable by agents without ceremony and are listed by
+`uv run pasm review spec` (from `pasm/`, like the other vellum invocations)
+until a human ratifies them by deleting the marker. Mark what you originate —
+including in vellum's own spec — and never remove a marker yourself.
+
 ## Nothing here reaches a game by merging
 
 Delivery is a rev bump, per `docs/handbook/bump-workflow.md`. Merging to `main`
