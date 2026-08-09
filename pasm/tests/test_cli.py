@@ -204,3 +204,35 @@ def test_cli_query_dependencies_reports_transitive_path(capsys, monkeypatch) -> 
             "path": ["indirect-source", "indirect-middle", "indirect-sink"],
         }
     ]
+
+
+def test_cli_review_lists_ai_origin_items(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        ["pasm", "review", str(FIXTURES / "review"), "--json"],
+    )
+    exit_code = main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["validation_ok"] is True
+    assert payload["entity_count"] == 1
+    assert payload["rationale_count"] == 1
+    assert [item["entity_id"] for item in payload["items"]] == [
+        "ai-made-choice",
+        "human-framed-component",
+    ]
+    assert payload["items"][1]["text"].startswith("[ai] ")
+    assert "invalid" not in payload["items"][0]["location"]
+
+
+def test_cli_review_is_empty_and_green_on_an_unmarked_spec(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        ["pasm", "review", str(FIXTURES / "valid")],
+    )
+    exit_code = main()
+    out = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "No AI-origin items awaiting audit." in out

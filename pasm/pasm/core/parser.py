@@ -14,6 +14,7 @@ from .model import (
     EntityId,
     EvidenceItem,
     EvidenceKind,
+    Origin,
     ExceptionSpec,
     Reference,
     SourceLocation,
@@ -40,6 +41,7 @@ ALLOWED_CORE_FIELDS = {
     "title",
     "status",
     "confidence",
+    "origin",
     "summary",
     "goals",
     "rationale",
@@ -420,11 +422,40 @@ def _parse_entity(
                 )
                 return None
 
+    origin_node = core.get("origin")
+    origin = Origin.HUMAN
+    if origin_node is not None:
+        origin_raw = _expect_string(
+            origin_node,
+            path=path,
+            spec_root=spec_root,
+            findings=findings,
+            finding_id=f"invalid-origin-shape:{entity_id}",
+            summary=f"Entity '{entity_id}' origin must be a string.",
+            rule="core.origin-string",
+            section=("entities", str(index), "core", "origin"),
+        )
+        if origin_raw is not None:
+            try:
+                origin = Origin(origin_raw)
+            except ValueError:
+                findings.append(
+                    _error_finding(
+                        finding_id=f"invalid-origin:{entity_id}",
+                        summary=f"Entity '{entity_id}' uses invalid origin '{origin_raw}'.",
+                        details="Origin is 'ai' or 'human'; absence means human.",
+                        rule="core.origin-valid",
+                        location=_location_for_node(path, spec_root, origin_node, "entities", str(index), "core", "origin"),
+                    )
+                )
+                return None
+
     entity = SpecEntity(
         id=entity_id,
         kind=kind,
         status=status,
         confidence=confidence,
+        origin=origin,
         title=_optional_string(core.get("title"), path, spec_root, findings, entity_id, ("entities", str(index), "core", "title")),
         summary=_optional_string(core.get("summary"), path, spec_root, findings, entity_id, ("entities", str(index), "core", "summary")),
         goals=_string_list(core.get("goals"), path, spec_root, findings, entity_id, ("entities", str(index), "core", "goals")),

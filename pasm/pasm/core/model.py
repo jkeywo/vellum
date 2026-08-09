@@ -33,6 +33,21 @@ class Confidence(str, Enum):
     UNKNOWN = "unknown"
 
 
+class Origin(str, Enum):
+    """Who made the decision an entity records.
+
+    Absence means HUMAN — the marker exists so AI-originated decisions are
+    visible, revisable without ceremony, and auditable via `pasm review`.
+    Ratification is deletion: a human who audits an AI decision and finds it
+    correct removes the marker, becoming the author of record (git keeps the
+    history). The line-level counterpart is a rationale bullet prefixed with
+    the literal `[ai] `, which stays a plain string in the model.
+    """
+
+    AI = "ai"
+    HUMAN = "human"
+
+
 class EvidenceKind(str, Enum):
     TEST = "test"
     MANUAL_REVIEW = "manual-review"
@@ -122,6 +137,7 @@ class SpecEntity:
     confidence: Confidence
     title: str | None
     summary: str | None
+    origin: Origin = Origin.HUMAN
     goals: tuple[str, ...] = ()
     rationale: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()

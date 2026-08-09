@@ -14,6 +14,7 @@ from pasm.domains.game_design.scenarios import load_scenario, validate_scenario
 from pasm.audit import build_audit_bundle, load_audit_report, persist_audit_report
 from pasm.context import build_context_bundle
 from pasm.relations import build_graph, reachable, shortest_path
+from pasm.review import collect_review_items, review_to_json, review_to_text
 
 
 def main() -> int:
@@ -149,6 +150,14 @@ def main() -> int:
     )
     traceability_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     traceability_parser.add_argument("--workspace-root", help="Repository root used to resolve implementation paths.")
+    review_parser = subparsers.add_parser(
+        "review", help="List AI-origin decisions awaiting human audit."
+    )
+    review_parser.add_argument(
+        "spec_root", nargs="?", default="pasm/spec", help="Directory containing PASM YAML files."
+    )
+    review_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    review_parser.add_argument("--workspace-root", help="Repository root used to resolve implementation paths.")
     scenario_parser = subparsers.add_parser("scenario", help="Validate a lightweight PASM scenario.")
     scenario_parser.add_argument("scenario_path", help="Scenario YAML file.")
     scenario_parser.add_argument("--spec-root", default="pasm/spec", help="Directory containing PASM YAML files.")
@@ -222,6 +231,23 @@ def main() -> int:
         else:
             print(_traceability_to_text(rows, result))
         return result.exit_code
+    if args.command == "review":
+        # A report, not a gate: exit 0 even when items await audit, so the
+        # command can sit in CI output without turning anything red.
+        result = _validate_from_args(args)
+        items = collect_review_items(result.model.entities)
+        if args.json:
+            payload = review_to_json(items)
+            # A broken spec means a partial model, so say the listing may be
+            # incomplete rather than presenting it as the whole audit.
+            payload["validation_ok"] = result.ok
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            if not result.ok:
+                print("WARNING: validation failed; this listing may be incomplete. Run `pasm validate` first.")
+                print()
+            print(review_to_text(items))
+        return 0
     if args.command == "scenario":
         result = validate_spec_root(Path(args.spec_root))
         try:

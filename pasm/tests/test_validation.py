@@ -256,3 +256,35 @@ def test_migration_invalid_fixture_reports_overlap_and_target_residue() -> None:
 
     assert "migration-overlapping-writers:invalid-helm-driver-rollout:invalid-migration-authoritative-state" in finding_ids
     assert "migration-target-still-references-legacy:invalid-helm-driver-rollout:invalid-helm-motion-planner-target:oldHelmDriver" in finding_ids
+
+
+def test_invalid_origin_is_reported() -> None:
+    result = validate_spec_root(FIXTURES / "invalid")
+    finding = next(f for f in result.findings if f.id.startswith("invalid-origin"))
+    assert finding.rule == "core.origin-valid"
+
+
+def test_origin_defaults_to_human_and_parses_ai() -> None:
+    from pasm.core.model import Origin
+
+    result = validate_spec_root(FIXTURES / "review")
+    by_id = {entity.id.value: entity for entity in result.model.entities}
+    assert by_id["ai-made-choice"].origin is Origin.AI
+    assert by_id["human-framed-component"].origin is Origin.HUMAN
+    assert by_id["fully-human"].origin is Origin.HUMAN
+    # The [ai] prefix is a plain-text convention: stored verbatim, not parsed.
+    assert by_id["human-framed-component"].rationale[1].startswith("[ai] ")
+
+
+def test_review_lists_ai_entities_and_marked_rationale_once_each() -> None:
+    from pasm.review import collect_review_items
+
+    result = validate_spec_root(FIXTURES / "review")
+    items = collect_review_items(result.model.entities)
+    scopes = [(item.entity_id, item.scope) for item in items]
+    # The origin: ai entity reports once even though it also has a marked
+    # bullet; the human entity reports its bullet; fully-human never appears.
+    assert scopes == [
+        ("ai-made-choice", "entity"),
+        ("human-framed-component", "rationale"),
+    ]

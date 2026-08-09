@@ -1,0 +1,24 @@
+entities:
+  - decision: ai-made-choice
+    core:
+      status: accepted
+      confidence: provisional
+      origin: ai
+      title: An AI chose this while implementing
+      summary: A whole decision the agent originated; awaiting audit.
+      rationale:
+        - "[ai] Both markers on one entity report once, as the entity."
+
+  - component: human-framed-component
+    core:
+      status: implemented
+      title: Human component with one AI bullet
+      rationale:
+        - Human wrote this line; it never appears in review.
+        - "[ai] The agent chose the 0.1 multiplier because full lockout felt unfair in playtests."
+
+  - component: fully-human
+    core:
+      status: implemented
+      origin: human
+      summary: Explicit human origin is legal and never listed.
