@@ -13,6 +13,7 @@ class TraceabilityRow:
     enforcement_links: tuple[EntityId, ...]
     implementation_paths: tuple[str, ...]
     implementation_status: str
+    content_paths: tuple[str, ...] = ()
 
 
 def build_traceability_rows(entities: tuple[SpecEntity, ...]) -> tuple[TraceabilityRow, ...]:
@@ -44,6 +45,10 @@ def build_traceability_rows(entities: tuple[SpecEntity, ...]) -> tuple[Traceabil
                 enforcement_links=design.enforcement_links,
                 implementation_paths=paths,
                 implementation_status=status,
+                content_paths=tuple(dict.fromkeys(
+                    ([design.world_file] if design.world_file else [])
+                    + [anchor.path for anchor in design.anchors if anchor.path is not None]
+                )),
             )
         )
     return tuple(rows)

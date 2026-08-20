@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pasm.core.findings import Finding, FindingCategory, Severity
 from pasm.core.model import EntityId, SpecEntity
+from pasm.domains.game_design.causality import validate_causality
+from pasm.domains.game_design.hypotheses import validate_design_principles
+from pasm.domains.game_design.pacing import validate_idle_roles, validate_pacing
 
 
 def validate_game_design(entities: tuple[SpecEntity, ...]) -> list[Finding]:
@@ -14,6 +17,10 @@ def validate_game_design(entities: tuple[SpecEntity, ...]) -> list[Finding]:
     findings.extend(_validate_resources(entities))
     findings.extend(_validate_failures(entities))
     findings.extend(_validate_tuning_and_playtest_claims(entities))
+    findings.extend(validate_causality(entities))
+    findings.extend(validate_pacing(entities))
+    findings.extend(validate_idle_roles(entities))
+    findings.extend(validate_design_principles(entities))
     return findings
 
 
@@ -226,10 +233,14 @@ def _design_refs(design) -> tuple[EntityId, ...]:
         "hidden_information", "coordination_with", "permitted_viewers", "participating_roles",
         "reads", "changes", "failure", "information_revealed", "information_exchanged",
         "actions_required", "affected_roles", "visible_to", "affected_mechanics", "supports",
+        "requires", "enables", "requires_player_action", "teaches",
+        "on_success", "on_failure", "depends_on_state", "construction",
     ):
         refs.extend((name, target) for target in getattr(design, name))
     if design.owner_role is not None:
         refs.append(("owner_role", design.owner_role))
+    for phase in design.phases:
+        refs.extend(("phases", role) for role in phase.engaged_roles)
     return tuple(refs)
 
 

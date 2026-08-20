@@ -13,6 +13,9 @@ from pasm.implementation.observation import observe_entity_implementation, obser
 from pasm.integration.traceability import build_traceability_rows
 from pasm.domains.game_design.scenarios import load_scenario, validate_scenario
 from pasm.audit import build_audit_bundle, load_audit_report, persist_audit_report
+from pasm.domains.game_design.bootstrap import BootstrapError, bootstrap_scenario
+from pasm.domains.game_design.digest import build_design_digest, render_design_digest
+from pasm.domains.game_design.writeback import WritebackError, apply_writeback
 from pasm.context import build_context_bundle
 from pasm.relations import build_graph, reachable, shortest_path
 from pasm.review import collect_review_items, review_to_json, review_to_text
@@ -184,6 +187,30 @@ def main() -> int:
     report_parser.add_argument("--bundle", help="Bundle JSON that the external audit reviewed.")
     report_parser.add_argument("--persist-dir", help="Directory for canonical revision-bound audit records.")
     report_parser.add_argument("--json", action="store_true")
+    design_parser = subparsers.add_parser("design", help="Game-design dynamics: bootstrap, digest, and guarded write-back.")
+    design_subparsers = design_parser.add_subparsers(dest="design_command", required=True)
+    bootstrap_parser = design_subparsers.add_parser(
+        "bootstrap", help="Draft skeleton design entities from an authored world file (origin: ai)."
+    )
+    bootstrap_parser.add_argument("world_file", help="Workspace-relative authored content file.")
+    bootstrap_parser.add_argument("--scenario-id", help="Semantic ID for the scenario model (defaults to the file stem).")
+    bootstrap_parser.add_argument("--deadline-table", default="deadline", help="Array-of-tables name for deadlines.")
+    bootstrap_parser.add_argument("--deadline-id-key", default="id", help="Row key naming each deadline.")
+    bootstrap_parser.add_argument("--out", help="Write the drafted spec here instead of stdout (refuses to overwrite).")
+    bootstrap_parser.add_argument("--workspace-root", default=".", help="Repository root the world file lives under.")
+    digest_parser = design_subparsers.add_parser(
+        "digest", help="Render the design digest: declared intent plus live authored values."
+    )
+    digest_parser.add_argument("spec_root", nargs="?", default="pasm/spec")
+    digest_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    digest_parser.add_argument("--workspace-root", help="Repository root used to resolve content paths.")
+    writeback_parser = design_subparsers.add_parser(
+        "writeback", help="Apply a hash-guarded changes document to the authoritative content."
+    )
+    writeback_parser.add_argument("changes_path", help="JSON changes document (see design digest for the content hash).")
+    writeback_parser.add_argument("spec_root", nargs="?", default="pasm/spec")
+    writeback_parser.add_argument("--workspace-root", help="Repository root used to resolve content paths.")
+    writeback_parser.add_argument("--dry-run", action="store_true", help="Validate and report without writing.")
     context_parser = subparsers.add_parser("context", help="Build a bounded task-context bundle from PASM links.")
     context_parser.add_argument("--entity", dest="entity_ids", action="append", required=True, help="Seed entity ID; repeat for multiple seeds.")
     context_parser.add_argument("--depth", type=int, default=1, help="Architecture-link traversal depth (default: 1).")
@@ -272,6 +299,62 @@ def main() -> int:
         payload = {"ok": ok, "scenario": scenario.id, "findings": [_json_ready(item) for item in findings]}
         print(json.dumps(payload, indent=2, sort_keys=True) if args.json else f"Scenario: {scenario.id}\nStatus: {'OK' if ok else 'FAILED'}")
         return 0 if ok else 1
+    if args.command == "design" and args.design_command == "bootstrap":
+        try:
+            drafted = bootstrap_scenario(
+                args.world_file,
+                Path(args.workspace_root),
+                scenario_id=args.scenario_id,
+                deadline_table=args.deadline_table,
+                deadline_id_key=args.deadline_id_key,
+            )
+        except BootstrapError as exc:
+            print(f"Bootstrap: FAILED\n{exc}")
+            return 1
+        if args.out:
+            out_path = Path(args.out)
+            if out_path.exists():
+                print(f"Bootstrap: FAILED\n'{out_path.as_posix()}' already exists; refusing to overwrite a spec file.")
+                return 1
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(drafted, encoding="utf-8")
+            print(f"Drafted {out_path.as_posix()}. Fill in the causal intent, then ratify via `pasm review`.")
+        else:
+            print(drafted, end="")
+        return 0
+    if args.command == "design" and args.design_command == "digest":
+        result = _validate_from_args(args)
+        workspace_root = _workspace_root_from_args(args, result)
+        digest = build_design_digest(result.model.entities, workspace_root)
+        if args.json:
+            digest["validation_ok"] = result.ok
+            print(json.dumps(digest, indent=2, sort_keys=True))
+        else:
+            if not result.ok:
+                print("WARNING: validation failed; this digest may be incomplete. Run `pasm validate` first.")
+                print()
+            print(render_design_digest(digest))
+        return 0
+    if args.command == "design" and args.design_command == "writeback":
+        result = _validate_from_args(args)
+        workspace_root = _workspace_root_from_args(args, result)
+        try:
+            changes = json.loads(Path(args.changes_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Writeback: FAILED\n{exc}")
+            return 1
+        try:
+            applied = apply_writeback(
+                changes, workspace_root, entities=result.model.entities, dry_run=args.dry_run
+            )
+        except WritebackError as exc:
+            print(f"Writeback: REFUSED\n{exc}")
+            return 1
+        mode = "Would apply" if args.dry_run else "Applied"
+        print(f"Writeback: OK ({mode} {len(applied)} change(s) to {changes.get('file')})")
+        for item in applied:
+            print(f"  {item.op}: {item.description}")
+        return 0
     if args.command == "audit" and args.audit_command == "bundle":
         result = _validate_from_args(args)
         entity = result.model.entity_by_id(args.entity_id)
@@ -700,6 +783,8 @@ def _traceability_to_text(rows, result) -> str:
         lines.append(f"  architecture: {links}")
         lines.append(f"  enforcement: {enforcement}")
         lines.append(f"  implementation: {paths} [{row.implementation_status}]")
+        if row.content_paths:
+            lines.append(f"  content: {', '.join(row.content_paths)}")
     return "\n".join(lines)
 
 

@@ -66,11 +66,16 @@ def _validate_shipped_architecture_mappings(entities, index):
 
 def _validate_role_action_conformance(entities, index):
     findings = []
+    # A spec that models no architecture layer at all has nothing for a verb
+    # to link into; requiring a link there is unsatisfiable by construction.
+    spec_models_architecture = any(entity.architecture is not None for entity in entities)
     for entity in entities:
         design = entity.game_design
         if entity.kind not in {"verb", "action"} or design is None:
             continue
         if not design.architecture_links:
+            if not spec_models_architecture:
+                continue
             findings.append(_finding(
                 f"role-action-missing-architecture-link:{entity.id}", entity,
                 f"Player verb '{entity.id}' has no architecture link.",

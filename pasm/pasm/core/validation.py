@@ -10,8 +10,22 @@ from .references import validate_references
 from pasm.architecture.validation import validate_architecture
 from pasm.implementation.validation import validate_implementation
 from pasm.migration.validation import validate_migrations
+from pasm.domains.game_design.content import validate_design_content
 from pasm.domains.game_design.validation import validate_game_design
 from pasm.integration.validation import validate_cross_domain
+
+
+# The sanctioned built-in registry (PASM_RUNTIME v1.0 §6.2): a static tuple,
+# not a plugin system. Run order is explicit and deterministic; every entry
+# takes the full entity set plus the workspace root.
+DOMAIN_VALIDATORS = (
+    ("architecture", lambda entities, workspace_root: validate_architecture(entities)),
+    ("implementation", validate_implementation),
+    ("migration", validate_migrations),
+    ("game_design", lambda entities, workspace_root: validate_game_design(entities)),
+    ("design_content", validate_design_content),
+    ("cross_domain", lambda entities, workspace_root: validate_cross_domain(entities)),
+)
 
 
 @dataclass(frozen=True)
@@ -86,11 +100,8 @@ def validate_spec_root(
     findings.extend(_validate_duplicate_entities(tuple(entities)))
     findings.extend(_validate_temporary_exceptions(tuple(entities)))
     findings.extend(validate_references(tuple(entities)))
-    findings.extend(validate_architecture(tuple(entities)))
-    findings.extend(validate_implementation(tuple(entities), workspace_root))
-    findings.extend(validate_migrations(tuple(entities), workspace_root))
-    findings.extend(validate_game_design(tuple(entities)))
-    findings.extend(validate_cross_domain(tuple(entities)))
+    for _name, validator in DOMAIN_VALIDATORS:
+        findings.extend(validator(tuple(entities), workspace_root))
 
     return ValidationResult(
         model=PasmModel(spec_root=spec_root, entities=tuple(entities)),

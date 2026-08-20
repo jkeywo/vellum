@@ -22,7 +22,7 @@ from .model import (
     Status,
 )
 from pasm.architecture.model import ArchitectureSection, PlatformConstraints
-from pasm.domains.game_design.model import GameDesignSection, InformationVisibility
+from pasm.domains.game_design.model import ContentAnchor, GameDesignSection, InformationVisibility, PacingPhase
 from pasm.implementation.model import ImplementationSection, MappingStatus
 from pasm.migration.model import MigrationPredicate, MigrationSection, RemovalCondition
 
@@ -136,6 +136,21 @@ ALLOWED_GAME_DESIGN_FIELDS = {
     "capacity", "pressure_intent", "causes", "consequences", "affected_roles", "visible_to",
     "terminal", "recovery_paths", "affected_mechanics", "intended_directional_effect",
     "bounds", "maturity", "supporting_evidence", "claim", "supports",
+    "specialises", "requires", "enables", "requires_player_action", "self_resolving",
+    "teaches", "on_success", "on_failure", "benign", "deadline_id",
+    "magnitude_source", "depends_on_state", "campaign_flags", "handler", "severity_intent",
+    "world_file", "deadline_table", "deadline_id_key",
+    "anchors", "relation", "asserted_by",
+    "phases", "clock_source", "human_calibration", "deadline_due_key",
+    "context", "construction", "expected_dynamic", "experience_hypothesis",
+    "measured_by", "strength", "counter_evidence",
+}
+ALLOWED_CONTENT_ANCHOR_FIELDS = {
+    "name", "path", "table", "match", "key",
+    "expect", "min", "max", "expect_count", "aggregate",
+}
+ALLOWED_PACING_PHASE_FIELDS = {
+    "phase_id", "from", "to", "intensity_intent", "engaged_roles", "covers_deadlines",
 }
 ALLOWED_REMOVAL_CONDITION_FIELDS = {"predicate", "subject", "allowed_callers"}
 ALLOWED_YAML_TAGS = {
@@ -630,7 +645,157 @@ def _game_design_section(
         supporting_evidence=_string_list(values.get("supporting_evidence"), path, spec_root, findings, entity_id, section + ("supporting_evidence",)),
         claim=_optional_string(values.get("claim"), path, spec_root, findings, entity_id, section + ("claim",)),
         supports=_entity_id_list(values.get("supports"), path, spec_root, findings, entity_id, section + ("supports",)),
+        specialises=_optional_string(values.get("specialises"), path, spec_root, findings, entity_id, section + ("specialises",)),
+        requires=_entity_id_list(values.get("requires"), path, spec_root, findings, entity_id, section + ("requires",)),
+        enables=_entity_id_list(values.get("enables"), path, spec_root, findings, entity_id, section + ("enables",)),
+        requires_player_action=_entity_id_list(values.get("requires_player_action"), path, spec_root, findings, entity_id, section + ("requires_player_action",)),
+        self_resolving=_optional_bool(values.get("self_resolving"), path, spec_root, findings, entity_id, section + ("self_resolving",)),
+        teaches=_entity_id_list(values.get("teaches"), path, spec_root, findings, entity_id, section + ("teaches",)),
+        on_success=_entity_id_list(values.get("on_success"), path, spec_root, findings, entity_id, section + ("on_success",)),
+        on_failure=_entity_id_list(values.get("on_failure"), path, spec_root, findings, entity_id, section + ("on_failure",)),
+        benign=_optional_bool(values.get("benign"), path, spec_root, findings, entity_id, section + ("benign",)),
+        deadline_id=_optional_string(values.get("deadline_id"), path, spec_root, findings, entity_id, section + ("deadline_id",)),
+        magnitude_source=_optional_string(values.get("magnitude_source"), path, spec_root, findings, entity_id, section + ("magnitude_source",)),
+        depends_on_state=_entity_id_list(values.get("depends_on_state"), path, spec_root, findings, entity_id, section + ("depends_on_state",)),
+        campaign_flags=_string_list(values.get("campaign_flags"), path, spec_root, findings, entity_id, section + ("campaign_flags",)),
+        handler=_optional_string(values.get("handler"), path, spec_root, findings, entity_id, section + ("handler",)),
+        severity_intent=_optional_string(values.get("severity_intent"), path, spec_root, findings, entity_id, section + ("severity_intent",)),
+        world_file=_optional_string(values.get("world_file"), path, spec_root, findings, entity_id, section + ("world_file",)),
+        deadline_table=_optional_string(values.get("deadline_table"), path, spec_root, findings, entity_id, section + ("deadline_table",)),
+        deadline_id_key=_optional_string(values.get("deadline_id_key"), path, spec_root, findings, entity_id, section + ("deadline_id_key",)),
+        anchors=_content_anchors(values.get("anchors"), path, spec_root, findings, entity_id, section + ("anchors",)),
+        relation=_optional_string(values.get("relation"), path, spec_root, findings, entity_id, section + ("relation",)),
+        asserted_by=_string_list(values.get("asserted_by"), path, spec_root, findings, entity_id, section + ("asserted_by",)),
+        phases=_pacing_phases(values.get("phases"), path, spec_root, findings, entity_id, section + ("phases",)),
+        clock_source=_optional_string(values.get("clock_source"), path, spec_root, findings, entity_id, section + ("clock_source",)),
+        human_calibration=_optional_string(values.get("human_calibration"), path, spec_root, findings, entity_id, section + ("human_calibration",)),
+        deadline_due_key=_optional_string(values.get("deadline_due_key"), path, spec_root, findings, entity_id, section + ("deadline_due_key",)),
+        context=_optional_string(values.get("context"), path, spec_root, findings, entity_id, section + ("context",)),
+        construction=_entity_id_list(values.get("construction"), path, spec_root, findings, entity_id, section + ("construction",)),
+        expected_dynamic=_optional_string(values.get("expected_dynamic"), path, spec_root, findings, entity_id, section + ("expected_dynamic",)),
+        experience_hypothesis=_optional_string(values.get("experience_hypothesis"), path, spec_root, findings, entity_id, section + ("experience_hypothesis",)),
+        measured_by=_string_list(values.get("measured_by"), path, spec_root, findings, entity_id, section + ("measured_by",)),
+        strength=_optional_string(values.get("strength"), path, spec_root, findings, entity_id, section + ("strength",)),
+        counter_evidence=_string_list(values.get("counter_evidence"), path, spec_root, findings, entity_id, section + ("counter_evidence",)),
     )
+
+
+def _pacing_phases(
+    node: Node | None,
+    path: Path,
+    spec_root: Path,
+    findings: list[Finding],
+    entity_id: EntityId,
+    section: tuple[str, ...],
+) -> tuple[PacingPhase, ...]:
+    if node is None:
+        return ()
+    if not isinstance(node, SequenceNode):
+        findings.append(
+            _error_finding(
+                finding_id=f"invalid-phases:{entity_id}",
+                summary=f"Entity '{entity_id}' field 'phases' must be a list of phase mappings.",
+                details="Pacing phases use the restricted list-of-mappings form.",
+                rule="yaml.phases-list",
+                location=_location_for_node(path, spec_root, node, *section),
+            )
+        )
+        return ()
+    phases: list[PacingPhase] = []
+    for index, item in enumerate(node.value):
+        item_section = section + (str(index),)
+        if not isinstance(item, MappingNode):
+            findings.append(
+                _error_finding(
+                    finding_id=f"invalid-phase:{entity_id}:{index}",
+                    summary=f"Entity '{entity_id}' phase #{index + 1} must be a mapping.",
+                    details="Each pacing phase is a restricted mapping of phase fields.",
+                    rule="yaml.phase-mapping",
+                    location=_location_for_node(path, spec_root, item, *item_section),
+                )
+            )
+            continue
+        values = _mapping_to_nodes(
+            item,
+            allowed_fields=ALLOWED_PACING_PHASE_FIELDS,
+            findings=findings,
+            path=path,
+            spec_root=spec_root,
+            section=item_section,
+        )
+        phases.append(
+            PacingPhase(
+                phase_id=_optional_string(values.get("phase_id"), path, spec_root, findings, entity_id, item_section + ("phase_id",)),
+                start=_optional_string(values.get("from"), path, spec_root, findings, entity_id, item_section + ("from",)),
+                end=_optional_string(values.get("to"), path, spec_root, findings, entity_id, item_section + ("to",)),
+                intensity_intent=_optional_string(values.get("intensity_intent"), path, spec_root, findings, entity_id, item_section + ("intensity_intent",)),
+                engaged_roles=_entity_id_list(values.get("engaged_roles"), path, spec_root, findings, entity_id, item_section + ("engaged_roles",)),
+                covers_deadlines=_string_list(values.get("covers_deadlines"), path, spec_root, findings, entity_id, item_section + ("covers_deadlines",)),
+                source_location=_location_for_node(path, spec_root, item, *item_section),
+            )
+        )
+    return tuple(phases)
+
+
+def _content_anchors(
+    node: Node | None,
+    path: Path,
+    spec_root: Path,
+    findings: list[Finding],
+    entity_id: EntityId,
+    section: tuple[str, ...],
+) -> tuple[ContentAnchor, ...]:
+    if node is None:
+        return ()
+    if not isinstance(node, SequenceNode):
+        findings.append(
+            _error_finding(
+                finding_id=f"invalid-anchors:{entity_id}",
+                summary=f"Entity '{entity_id}' field 'anchors' must be a list of anchor mappings.",
+                details="Content anchors use the restricted list-of-mappings form.",
+                rule="yaml.anchors-list",
+                location=_location_for_node(path, spec_root, node, *section),
+            )
+        )
+        return ()
+    anchors: list[ContentAnchor] = []
+    for index, item in enumerate(node.value):
+        item_section = section + (str(index),)
+        if not isinstance(item, MappingNode):
+            findings.append(
+                _error_finding(
+                    finding_id=f"invalid-anchor:{entity_id}:{index}",
+                    summary=f"Entity '{entity_id}' anchor #{index + 1} must be a mapping.",
+                    details="Each content anchor is a restricted mapping of anchor fields.",
+                    rule="yaml.anchor-mapping",
+                    location=_location_for_node(path, spec_root, item, *item_section),
+                )
+            )
+            continue
+        values = _mapping_to_nodes(
+            item,
+            allowed_fields=ALLOWED_CONTENT_ANCHOR_FIELDS,
+            findings=findings,
+            path=path,
+            spec_root=spec_root,
+            section=item_section,
+        )
+        anchors.append(
+            ContentAnchor(
+                name=_optional_string(values.get("name"), path, spec_root, findings, entity_id, item_section + ("name",)),
+                path=_optional_string(values.get("path"), path, spec_root, findings, entity_id, item_section + ("path",)),
+                table=_optional_string(values.get("table"), path, spec_root, findings, entity_id, item_section + ("table",)),
+                match=_optional_string(values.get("match"), path, spec_root, findings, entity_id, item_section + ("match",)),
+                key=_optional_string(values.get("key"), path, spec_root, findings, entity_id, item_section + ("key",)),
+                expect=_optional_string(values.get("expect"), path, spec_root, findings, entity_id, item_section + ("expect",)),
+                min=_optional_string(values.get("min"), path, spec_root, findings, entity_id, item_section + ("min",)),
+                max=_optional_string(values.get("max"), path, spec_root, findings, entity_id, item_section + ("max",)),
+                expect_count=_optional_string(values.get("expect_count"), path, spec_root, findings, entity_id, item_section + ("expect_count",)),
+                aggregate=_optional_string(values.get("aggregate"), path, spec_root, findings, entity_id, item_section + ("aggregate",)),
+                source_location=_location_for_node(path, spec_root, item, *item_section),
+            )
+        )
+    return tuple(anchors)
 
 
 def _game_design_visibility(node, path, spec_root, findings, entity_id, section):

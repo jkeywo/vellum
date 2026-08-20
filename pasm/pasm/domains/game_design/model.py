@@ -15,6 +15,43 @@ class InformationVisibility(str, Enum):
 
 
 @dataclass(frozen=True)
+class ContentAnchor:
+    """A claim about where an authored value lives, and what the design intends of it.
+
+    All expectation values are strings; the content validator types them at
+    check time. Bounds (`min`/`max`) are design intent a human may retune past
+    (a warning-level conversation); `expect`/`expect_count` are structural
+    claims whose drift is an error.
+    """
+
+    name: str | None = None
+    path: str | None = None
+    table: str | None = None
+    match: str | None = None
+    key: str | None = None
+    expect: str | None = None
+    min: str | None = None
+    max: str | None = None
+    expect_count: str | None = None
+    aggregate: str | None = None
+    source_location: object | None = None
+
+
+@dataclass(frozen=True)
+class PacingPhase:
+    """One window of the mission clock. `start`/`end` are quoted durations
+    ("40s", "5m", "300"), typed by the pacing validator at check time."""
+
+    phase_id: str | None = None
+    start: str | None = None
+    end: str | None = None
+    intensity_intent: str | None = None
+    engaged_roles: tuple[EntityId, ...] = ()
+    covers_deadlines: tuple[str, ...] = ()
+    source_location: object | None = None
+
+
+@dataclass(frozen=True)
 class GameDesignSection:
     field_locations: dict[str, object] = field(default_factory=dict)
     architecture_links: tuple[EntityId, ...] = ()
@@ -68,3 +105,35 @@ class GameDesignSection:
     supporting_evidence: tuple[str, ...] = ()
     claim: str | None = None
     supports: tuple[EntityId, ...] = ()
+    specialises: str | None = None
+    requires: tuple[EntityId, ...] = ()
+    enables: tuple[EntityId, ...] = ()
+    requires_player_action: tuple[EntityId, ...] = ()
+    self_resolving: bool | None = None
+    teaches: tuple[EntityId, ...] = ()
+    on_success: tuple[EntityId, ...] = ()
+    on_failure: tuple[EntityId, ...] = ()
+    benign: bool | None = None
+    deadline_id: str | None = None
+    magnitude_source: str | None = None
+    depends_on_state: tuple[EntityId, ...] = ()
+    campaign_flags: tuple[str, ...] = ()
+    handler: str | None = None
+    severity_intent: str | None = None
+    world_file: str | None = None
+    deadline_table: str | None = None
+    deadline_id_key: str | None = None
+    anchors: tuple[ContentAnchor, ...] = ()
+    relation: str | None = None
+    asserted_by: tuple[str, ...] = ()
+    phases: tuple[PacingPhase, ...] = ()
+    clock_source: str | None = None
+    human_calibration: str | None = None
+    deadline_due_key: str | None = None
+    context: str | None = None
+    construction: tuple[EntityId, ...] = ()
+    expected_dynamic: str | None = None
+    experience_hypothesis: str | None = None
+    measured_by: tuple[str, ...] = ()
+    strength: str | None = None
+    counter_evidence: tuple[str, ...] = ()

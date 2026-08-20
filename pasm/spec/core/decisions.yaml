@@ -341,3 +341,38 @@ entities:
           an agent wraps lines it writes in square brackets and a human
           removes them — one provisional-until-ratified shape across the
           fleet, in prose and in spec alike.
+
+  - decision: authored-content-is-design-truth
+    core:
+      status: accepted
+      confidence: confirmed
+      origin: ai
+      title: The game-design dynamics layer reads authored content as truth (2026-08-20)
+      summary: >-
+        [ai] The game-design domain gained a causal vocabulary (gate,
+        consequence, scenario_model, pacing, design_invariant,
+        design_principle) whose numbers are never copied into the spec. A
+        content anchor names where a value lives in the authored TOML and
+        what the design intends of it; validators read the file live, so a
+        designer tunes content freely and the spec cannot drift into a
+        second copy. Bounds are intent, not a gate on the human: an
+        out-of-bounds authored value is a warning conversation, while `pasm
+        design writeback` refuses to write outside bounds because the agent
+        is bound by declared intent. A scenario_model opts a world file into
+        closed-world completeness — every authored deadline maps to a gate
+        stating its failure consequence or declaring itself benign — and
+        `pasm design bootstrap` drafts origin-ai skeletons the review flow
+        ratifies. Write-back is surgical text substitution plus templated
+        block insertion and handler stubs, hash-guarded and reparsed before
+        anything lands, so authored commentary survives byte-identical.
+      rationale:
+        - >-
+          [ai] The parser charter (strings and booleans only) survives
+          untouched because expectation values are quoted strings typed at
+          check time; relaxing scalars per-section would have made a spec
+          file's validity depend on which validator loads it.
+        - >-
+          [ai] GameSpec's own gamespec-vs-pasm analysis showed layers bound
+          by prose drift apart; binding the design layer to authored content
+          through anchors and to tests through asserted_by is the contract
+          that was missing.
