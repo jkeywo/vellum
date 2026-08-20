@@ -229,6 +229,7 @@ def _validate_closed_world(entities, workspace_root: Path, documents: dict[str, 
 
     findings: list[Finding] = []
     known_deadline_ids: set[str] = set()
+    known_deadline_dues: dict[str, float] = {}
     script_functions: set[str] = set()
 
     pacings: list[tuple[SpecEntity, list[tuple[float, float, object]]]] = []
@@ -306,6 +307,8 @@ def _validate_closed_world(entities, workspace_root: Path, documents: dict[str, 
             known_deadline_ids.add(deadline_id)
             due_value = row.values.get(deadline_due_key)
             if isinstance(due_value, (int, float)) and not isinstance(due_value, bool):
+                known_deadline_dues[deadline_id] = float(due_value)
+            if isinstance(due_value, (int, float)) and not isinstance(due_value, bool):
                 for pacing_entity, windows in pacings:
                     containing = [
                         window for window in windows
@@ -363,6 +366,30 @@ def _validate_closed_world(entities, workspace_root: Path, documents: dict[str, 
                     _location(claimers[0], "deadline_id"),
                     severity=Severity.WARNING,
                     category=FindingCategory.DESIGN_RISK,
+                ))
+
+    # Order-only clock discipline: when gate A requires gate B and both carry
+    # authored deadlines, A's clock must land after B's. This is the check
+    # that survives retuning — values move freely, order does not.
+    gate_index = {gate.id: gate for gate in gates}
+    for gate in gates:
+        own_due = known_deadline_dues.get(gate.game_design.deadline_id)
+        if own_due is None:
+            continue
+        for required in gate.game_design.requires:
+            prerequisite = gate_index.get(required)
+            if prerequisite is None:
+                continue
+            required_due = known_deadline_dues.get(prerequisite.game_design.deadline_id)
+            if required_due is not None and own_due <= required_due:
+                findings.append(_finding(
+                    f"deadline-order:{gate.id}:{required}", gate,
+                    f"Gate '{gate.id}' (at {own_due:g}) requires '{required}' whose deadline lands later ({required_due:g}).",
+                    "The causal order the design declares and the authored clock disagree: "
+                    "a prerequisite's deadline must land before the gate that requires it.",
+                    "design-content.deadline-order",
+                    "Retune the authored clocks or fix the gate's 'requires'.",
+                    _location(gate, "requires"),
                 ))
 
     for gate in gates:

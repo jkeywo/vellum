@@ -195,3 +195,66 @@ def test_anchor_stale_paths_and_selectors(tmp_path: Path) -> None:
     assert "design-content.anchor-file-exists" in rules
     assert "design-content.anchor-complete" in rules
     assert "design-content.expectation-parseable" in rules
+
+
+def test_deadline_order_follows_requires(tmp_path: Path) -> None:
+    spec_root = _workspace(
+        tmp_path,
+        """entities:
+  - scenario_model: mini-scenario
+    core: {status: accepted}
+    game_design:
+      world_file: assets/worlds/mini.toml
+  - gate: early
+    core: {status: accepted}
+    game_design:
+      self_resolving: true
+      deadline_id: storm_front
+      benign: true
+      requires: [late]
+  - gate: late
+    core: {status: accepted}
+    game_design:
+      self_resolving: true
+      deadline_id: tether_slip
+      benign: true
+""",
+    )
+
+    result = validate_spec_root(spec_root, workspace_root=tmp_path)
+
+    # 'early' (100s) requires 'late' (40s): the prerequisite's clock lands
+    # first, so the declared order and the authored order agree.
+    assert not any(f.rule == "design-content.deadline-order" for f in result.findings)
+
+
+def test_deadline_order_violation_is_an_error(tmp_path: Path) -> None:
+    spec_root = _workspace(
+        tmp_path,
+        """entities:
+  - scenario_model: mini-scenario
+    core: {status: accepted}
+    game_design:
+      world_file: assets/worlds/mini.toml
+  - gate: first
+    core: {status: accepted}
+    game_design:
+      self_resolving: true
+      deadline_id: tether_slip
+      benign: true
+      requires: [second]
+  - gate: second
+    core: {status: accepted}
+    game_design:
+      self_resolving: true
+      deadline_id: storm_front
+      benign: true
+""",
+    )
+
+    result = validate_spec_root(spec_root, workspace_root=tmp_path)
+    finding = next(f for f in result.findings if f.rule == "design-content.deadline-order")
+
+    # 'first' at 40s requires 'second' at 100s: the prerequisite lands later.
+    assert finding.severity.value == "error"
+    assert "first" in finding.id
